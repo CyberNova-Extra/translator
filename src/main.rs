@@ -18,10 +18,11 @@ const ENV_MODEL: &str = "QWEN_TRANSLATE_MODEL";
 #[command(
     name = "translate",
     version,
+    disable_help_flag = true,
     about = "Local offline translation with Qwen3.5-0.8B (text and images)",
     long_about = "Local offline translation with Qwen3.5-0.8B (text and images).\n\n\
         Input: command-line arguments take precedence, otherwise stdin is read (pipe-friendly).\n\
-        Image translation: pass an image via --image; --x/--y/--w/--h crop the region to translate.\n\
+        Image translation: pass an image via --image; -x/-y/-w/-h crop the region to translate.\n\
         Model lookup order: --model / env var > user data dir > /usr/local/share, /usr/share\n\
         (on macOS also the Homebrew prefix /opt/homebrew/share); auto-downloads to the user\n\
         data dir when not found anywhere.\n\
@@ -30,7 +31,7 @@ const ENV_MODEL: &str = "QWEN_TRANSLATE_MODEL";
         translate \"I love programming\"\n  \
         echo 我喜欢编程 | translate\n  \
         translate --to ja \"你好\"\n  \
-        translate --image shot.png --x 10 --y 20 --w 300 --h 200"
+        translate --image shot.png -x 10 -y 20 -w 300 -h 200"
 )]
 struct Args {
     /// Path to the GGUF model
@@ -61,25 +62,29 @@ struct Args {
     #[arg(long)]
     image: Option<PathBuf>,
 
-    /// Left edge X of the region to translate (requires --y/--w/--h)
-    #[arg(long, requires = "y", requires = "w", requires = "h")]
+    /// Left edge X of the region to translate (requires -y/-w/-h)
+    #[arg(short = 'x', requires = "y", requires = "w", requires = "h")]
     x: Option<u32>,
 
     /// Top edge Y of the region to translate
-    #[arg(long, requires = "x", requires = "w", requires = "h")]
+    #[arg(short = 'y', requires = "x", requires = "w", requires = "h")]
     y: Option<u32>,
 
     /// Width of the region to translate
-    #[arg(long, visible_alias = "width", requires = "x", requires = "y", requires = "h")]
+    #[arg(short = 'w', long = "width", requires = "x", requires = "y", requires = "h")]
     w: Option<u32>,
 
     /// Height of the region to translate
-    #[arg(long, visible_alias = "height", requires = "x", requires = "y", requires = "w")]
+    #[arg(short = 'h', long = "height", requires = "x", requires = "y", requires = "w")]
     h: Option<u32>,
 
     /// Run as a Firefox native messaging host (used by the browser extension)
     #[arg(long)]
     native_host: bool,
+
+    /// Print help
+    #[arg(long, action = clap::ArgAction::HelpLong)]
+    help: Option<bool>,
 
     /// Text to translate (read from stdin when omitted)
     text: Vec<String>,
@@ -195,7 +200,7 @@ fn run() -> Result<()> {
     }
 
     if args.x.is_some() || args.y.is_some() || args.w.is_some() || args.h.is_some() {
-        bail!("--x/--y/--w/--h can only be used together with --image");
+        bail!("-x/-y/-w/-h can only be used together with --image");
     }
 
     let text = if !args.text.is_empty() {

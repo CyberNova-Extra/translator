@@ -49,7 +49,7 @@ jobs:
           rm -rf "$PKG"
           mkdir -p "$PKG"
           cp target/release/translate "$PKG/"
-          cp README.md LICENSE "$PKG/"
+          cp README.md README.zh-CN.md LICENSE "$PKG/"
           cp -r scripts firefox "$PKG/"
 
           tar -cJf "$PKG.tar.xz" "$PKG"
@@ -81,7 +81,7 @@ jobs:
           rm -rf pkgroot
           mkdir -p pkgroot/usr/bin pkgroot/usr/share/qwen-translate
           cp target/release/translate pkgroot/usr/bin/
-          cp -r firefox scripts README.md LICENSE pkgroot/usr/share/qwen-translate/
+          cp -r firefox scripts README.md README.zh-CN.md LICENSE pkgroot/usr/share/qwen-translate/
 
           FPM_COMMON="-s dir -C pkgroot -v $VER --license GPL-3.0-only \
             --maintainer TUST-Open-Source-Club \
