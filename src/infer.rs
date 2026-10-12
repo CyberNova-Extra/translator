@@ -216,9 +216,21 @@ impl Translator {
         }
 
         let mut ctx = self.model.new_context(&self.backend, self.ctx_params(N_CTX))?;
-        let mut batch = LlamaBatch::new(N_CTX as usize, 1);
-        batch.add_sequence(&tokens, 0, false)?;
-        ctx.decode(&mut batch).context("failed to process prompt")?;
+        // Chunked prefill: a single decode batch may not exceed n_batch,
+        // and positions must be absolute across chunks.
+        let n_batch = 512usize;
+        let mut batch = LlamaBatch::new(n_batch, 1);
+        let mut pos = 0usize;
+        while pos < tokens.len() {
+            let end = (pos + n_batch).min(tokens.len());
+            batch.clear();
+            for (i, t) in tokens[pos..end].iter().enumerate() {
+                let p = pos + i;
+                batch.add(*t, p as i32, &[0], p == tokens.len() - 1)?;
+            }
+            ctx.decode(&mut batch).context("failed to process prompt")?;
+            pos = end;
+        }
 
         let max_out = (tokens.len() * 2 + 128).min(2048);
         self.generate(&mut ctx, tokens.len() as i32, max_out)
