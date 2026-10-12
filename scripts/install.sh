@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# translate release tarball 安装脚本
-# 把二进制装到 ~/.local/bin，模型（如包内附带）装到数据目录
+# Installer for the translate release tarball:
+# installs the binary into ~/.local/bin and the bundled model (if any) into the data dir.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -14,18 +14,18 @@ BIN_DIR="$HOME/.local/bin"
 
 mkdir -p "$BIN_DIR" "$DATA_DIR"
 install -m755 "$HERE/translate" "$BIN_DIR/translate"
-echo "已安装: $BIN_DIR/translate"
+echo "Installed: $BIN_DIR/translate"
 
 if [[ -f "$HERE"/model/*.gguf ]]; then
   cp "$HERE"/model/*.gguf "$DATA_DIR/"
-  echo "已安装模型: $DATA_DIR/$(basename "$HERE"/model/*.gguf)"
+  echo "Installed model: $DATA_DIR/$(basename "$HERE"/model/*.gguf)"
 else
-  echo "本包不含模型，首次运行时会自动下载（默认 ModelScope）"
+  echo "This package has no bundled model; it will be auto-downloaded on first run (via ModelScope)."
 fi
 
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
-  *) echo "提示: $BIN_DIR 不在 PATH 中，请加入 shell 配置（如 ~/.bashrc 或 ~/.zshrc）" ;;
+  *) echo "Note: $BIN_DIR is not in PATH; add it in your shell config (e.g. ~/.bashrc or ~/.zshrc)" ;;
 esac
 
-echo "Firefox 扩展: 运行 $HERE/scripts/install-native-host.sh，然后在 about:debugging 载入 $HERE/firefox/manifest.json"
+echo "Firefox extension: run $HERE/scripts/install-native-host.sh, then load $HERE/firefox/manifest.json in about:debugging"

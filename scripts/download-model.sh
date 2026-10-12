@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# 下载 Qwen3.5-0.8B GGUF 模型到平台数据目录
-# 默认从 ModelScope 下载；MODEL_SOURCE=huggingface 切换到 HuggingFace（自动走国内镜像）
+# Download the Qwen3.5-0.8B GGUF model + mmproj projector weights into the platform data dir.
+# Downloads from ModelScope by default; set MODEL_SOURCE=huggingface for HuggingFace (uses a mirror).
 set -euo pipefail
 
 MODEL_NAME="${MODEL_NAME:-Qwen3.5-0.8B-Q4_K_M.gguf}"
+MMPROJ_NAME="${MMPROJ_NAME:-mmproj-F16.gguf}"
 REPO="${MODEL_REPO:-unsloth/Qwen3.5-0.8B-GGUF}"
 SOURCE="${MODEL_SOURCE:-modelscope}"
 
@@ -13,42 +14,46 @@ else
   DEST_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/qwen-translate"
 fi
 mkdir -p "$DEST_DIR"
-DEST="$DEST_DIR/$MODEL_NAME"
 
-if [[ -f "$DEST" ]]; then
-  echo "模型已存在: $DEST" >&2
-  exit 0
-fi
-
-case "$SOURCE" in
-  modelscope)
-    URLS=("https://modelscope.cn/models/$REPO/resolve/master/$MODEL_NAME")
-    ;;
-  huggingface|hf)
-    URLS=(
-      "https://hf-mirror.com/$REPO/resolve/main/$MODEL_NAME"
-      "https://huggingface.co/$REPO/resolve/main/$MODEL_NAME"
-    )
-    ;;
-  *)
-    echo "MODEL_SOURCE 只支持 modelscope 或 huggingface" >&2
-    exit 1
-    ;;
-esac
-
-ok=0
-for url in "${URLS[@]}"; do
-  echo "下载: $url" >&2
-  if curl -fL --connect-timeout 15 -o "$DEST.tmp" "$url"; then
-    mv "$DEST.tmp" "$DEST"
-    ok=1
-    break
+download_one() {
+  local name="$1"
+  local dest="$DEST_DIR/$name"
+  if [[ -f "$dest" ]]; then
+    echo "Already exists: $dest" >&2
+    return 0
   fi
-done
 
-if [[ "$ok" != "1" ]]; then
-  rm -f "$DEST.tmp"
-  echo "下载失败，请检查网络后重试" >&2
-  exit 1
-fi
-echo "完成: $DEST" >&2
+  local urls=()
+  case "$SOURCE" in
+    modelscope)
+      urls=("https://modelscope.cn/models/$REPO/resolve/master/$name")
+      ;;
+    huggingface|hf)
+      urls=(
+        "https://hf-mirror.com/$REPO/resolve/main/$name"
+        "https://huggingface.co/$REPO/resolve/main/$name"
+      )
+      ;;
+    *)
+      echo "MODEL_SOURCE must be modelscope or huggingface" >&2
+      exit 1
+      ;;
+  esac
+
+  local url
+  for url in "${urls[@]}"; do
+    echo "Downloading: $url" >&2
+    if curl -fL --connect-timeout 15 -o "$dest.tmp" "$url"; then
+      mv "$dest.tmp" "$dest"
+      echo "Done: $dest" >&2
+      return 0
+    fi
+  done
+
+  rm -f "$dest.tmp"
+  echo "Download failed: $name" >&2
+  return 1
+}
+
+download_one "$MODEL_NAME"
+download_one "$MMPROJ_NAME"

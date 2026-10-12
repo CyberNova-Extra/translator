@@ -3,10 +3,11 @@
 本地离线翻译工具：Rust + llama.cpp 跑 [Qwen3.5-0.8B](https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF)（Q4_K_M，约 500MB），配套 Firefox 扩展（右键翻译选中内容）。GPLv3 开源。
 
 - 首次运行自动下载模型，默认走 **ModelScope**（国内快），可切 HuggingFace
-- 自动判断翻译方向：中文（含日文假名）→ 英文；其他 → 中文
+- 支持 9 种语言：中/英/日/韩/法/德/俄/西/葡；`--from` 默认 auto 自动检测，`--to` 默认中英互译方向；环境变量 `TRANSLATE_FROM`/`TRANSLATE_TO` 可设默认值，命令行参数优先
+- 图片翻译：`--image` 直接多模态翻译（非 OCR），`--x/--y/--w/--h` 可裁剪翻译区域
 - 有 GPU 用 GPU（Vulkan / CUDA / Metal），没有自动回退 CPU
 - stdout 只输出结果，日志/进度/报错全走 stderr，可放心管道组合
-- Qwen3.5-0.8B 是多模态模型（支持图片），本工具目前只做文本翻译；0.8B 小模型偶尔有词汇级误译，属正常局限
+- Qwen3.5-0.8B 是多模态模型，文本/图片翻译都靠它；0.8B 小模型偶尔有词汇级误译，属正常局限
 
 ## 安装
 
@@ -64,6 +65,15 @@ translate --model /path/to.gguf "…" # 指定模型（或环境变量 QWEN_TRAN
 translate --gpu-layers 0 "…"        # 强制纯 CPU
 translate --model-source huggingface "…"  # 自动下载走 HuggingFace（默认 modelscope）
 translate --log-level info "…"           # 显示 llama.cpp 内部日志（默认 warn，静默）
+
+# 多语言（zh/en/ja/ko/fr/de/ru/es/pt）
+translate --to ja "你好"                 # 中 → 日
+translate --from ru --to zh "Привет"     # 指定源语言（默认 auto 自动检测）
+TRANSLATE_TO=ja translate "你好"         # 环境变量设默认目标语言（命令行参数优先）
+
+# 图片翻译（多模态直接翻译，非 OCR；首次使用自动下载 mmproj 投影权重）
+translate --image shot.png                     # 整图翻译
+translate --image shot.png --x 10 --y 20 --w 300 --h 200   # 只翻译指定区域（x,y 左上角；w,h 宽高）
 ```
 
 参数与 stdin 同时存在时优先用参数；两者都没有时打印帮助。解码为贪心策略（确定性输出）。
@@ -99,7 +109,7 @@ translate --log-level info "…"           # 显示 llama.cpp 内部日志（默
 ## CI/CD
 
 - **CI**（push / PR）：Ubuntu（Vulkan）+ macOS（Metal）构建 + 真实推理冒烟测试
-- **CD**（推送 `v*` tag 触发）：构建 Release 资产——双平台 tar.xz（含/不含模型）+ deb / rpm / pacman 安装包，自动发布到 GitHub Release
+- **CD**（推送 `v*` tag 触发）：构建 Release 资产——双平台 tar.xz（含/不含模型）+ deb / rpm / pacman 安装包（各含/不含模型两种），以**草稿**形式创建 Release，人工确认后发布
 
 ## 卸载
 

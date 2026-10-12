@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# 安装 Firefox 原生消息宿主清单（Linux/macOS）
-# 用法: scripts/install-native-host.sh [translate 二进制路径]
+# Install the Firefox native messaging host manifest (Linux/macOS).
+# Usage: scripts/install-native-host.sh [path to the translate binary]
 set -euo pipefail
 
 HOST_NAME="qwen_translate"
@@ -14,7 +14,7 @@ elif [[ -x "$PROJECT_ROOT/target/release/translate" ]]; then
 elif command -v translate >/dev/null 2>&1; then
   BIN="$(command -v translate)"
 else
-  echo "找不到 translate 二进制，请先 cargo build --release 或指定路径" >&2
+  echo "translate binary not found; run cargo build --release first or pass the path" >&2
   exit 1
 fi
 BIN="$(cd "$(dirname "$BIN")" && pwd)/$(basename "$BIN")"
@@ -28,7 +28,7 @@ else
 fi
 mkdir -p "$HOST_DIR" "$DATA_DIR"
 
-# 原生清单的 path 不能带参数，用 wrapper 脚本追加 --native-host
+# The manifest "path" cannot carry arguments; use a wrapper to add --native-host
 WRAPPER="$DATA_DIR/native-host.sh"
 cat > "$WRAPPER" <<EOF
 #!/bin/sh
@@ -39,13 +39,13 @@ chmod +x "$WRAPPER"
 cat > "$HOST_DIR/$HOST_NAME.json" <<EOF
 {
   "name": "$HOST_NAME",
-  "description": "Qwen 本地翻译原生消息宿主",
+  "description": "Local translation native messaging host (Qwen)",
   "path": "$WRAPPER",
   "type": "stdio",
   "allowed_extensions": ["$EXT_ID"]
 }
 EOF
 
-echo "已安装: $HOST_DIR/$HOST_NAME.json"
-echo "wrapper: $WRAPPER -> $BIN --native-host"
-echo "下一步: 打开 Firefox about:debugging#/runtime/this-firefox → 临时载入附加组件 → 选择 $PROJECT_ROOT/firefox/manifest.json"
+echo "Installed: $HOST_DIR/$HOST_NAME.json"
+echo "Wrapper: $WRAPPER -> $BIN --native-host"
+echo "Next: open Firefox about:debugging#/runtime/this-firefox -> Load Temporary Add-on -> $PROJECT_ROOT/firefox/manifest.json"

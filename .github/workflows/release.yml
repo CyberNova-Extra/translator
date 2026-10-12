@@ -27,7 +27,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake clang spirv-headers libvulkan-dev glslang-tools glslc rpm ruby ruby-dev build-essential
+          sudo apt-get install -y cmake clang spirv-headers libvulkan-dev glslang-tools glslc rpm ruby ruby-dev build-essential libarchive-tools
 
       - uses: Swatinem/rust-cache@v2
 

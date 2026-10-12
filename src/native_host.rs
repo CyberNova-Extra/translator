@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::infer::{TargetLang, Translator};
+use crate::infer::{default_target, Lang, Translator};
 
 const MAX_MSG_LEN: u32 = 8 * 1024 * 1024;
 
@@ -13,8 +13,8 @@ struct Request {
     text: String,
 }
 
-/// Firefox 原生消息协议：每条消息 = 4 字节小端长度 + JSON。
-/// 循环处理，模型常驻内存。
+/// Firefox native messaging protocol: each message is a 4-byte little-endian
+/// length followed by JSON. Loops forever; the model stays loaded in memory.
 pub fn run(translator: &Translator) -> Result<()> {
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
@@ -26,14 +26,14 @@ pub fn run(translator: &Translator) -> Result<()> {
         match input.read_exact(&mut len_buf) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(()),
-            Err(e) => return Err(e).context("读取消息长度失败"),
+            Err(e) => return Err(e).context("failed to read message length"),
         }
         let len = u32::from_le_bytes(len_buf);
         if len > MAX_MSG_LEN {
-            anyhow::bail!("消息过长: {len} 字节");
+            anyhow::bail!("message too long: {len} bytes");
         }
         let mut buf = vec![0u8; len as usize];
-        input.read_exact(&mut buf).context("读取消息体失败")?;
+        input.read_exact(&mut buf).context("failed to read message body")?;
 
         let response = handle(translator, &buf);
         let payload = serde_json::to_vec(&response)?;
@@ -46,13 +46,14 @@ pub fn run(translator: &Translator) -> Result<()> {
 fn handle(translator: &Translator, buf: &[u8]) -> serde_json::Value {
     let req = match serde_json::from_slice::<Request>(buf) {
         Ok(r) => r,
-        Err(e) => return json!({ "error": format!("请求格式错误: {e}") }),
+        Err(e) => return json!({ "error": format!("invalid request: {e}") }),
     };
     let text = req.text.trim();
     if text.is_empty() {
-        return json!({ "error": "文本为空" });
+        return json!({ "error": "empty text" });
     }
-    match translator.translate(text, TargetLang::detect(text)) {
+    let detected = Lang::detect(text);
+    match translator.translate(text, None, default_target(detected)) {
         Ok(t) => json!({ "translation": t }),
         Err(e) => json!({ "error": format!("{e:#}") }),
     }
