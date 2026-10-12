@@ -21,31 +21,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 安装 Linux 构建依赖
+      - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake clang spirv-headers libvulkan-dev glslang-tools
+          sudo apt-get install -y cmake clang spirv-headers libvulkan-dev glslang-tools glslc
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: 构建
+      - name: Build
         run: cargo build --release --features ${{ matrix.features }}
 
-      - name: 缓存模型
+      - name: Cache model
         uses: actions/cache@v4
         with:
           path: ${{ matrix.model_dir }}
           key: model-qwen35-0.8b-q4_k_m-v1
 
-      - name: 冒烟测试（stdin 管道）
+      - name: Smoke test (stdin pipe)
         run: |
           out=$(echo "I love programming" | ./target/release/translate --model-source huggingface)
-          echo "英→中: $out"
+          echo "en->zh: $out"
           echo "$out" | grep -q "编程"
 
-      - name: 冒烟测试（命令行参数）
+      - name: Smoke test (CLI args)
         run: |
           out=$(./target/release/translate "今天天气很好")
-          echo "中→英: $out"
+          echo "zh->en: $out"
           echo "$out" | grep -qi "weather"
