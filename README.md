@@ -85,6 +85,9 @@ translate --image shot.png -x 10 -y 20 -w 300 -h 200     # translate a region on
 translate --model /path/to.gguf "…"  # custom model (or QWEN_TRANSLATE_MODEL)
 translate --fast "…"                 # fast 0.8B variant
 translate --quality "…"              # high-quality 4B variant
+translate --download-only            # download all model variants, then exit
+translate --download-only --fast     # download only the 0.8B variant
+translate --download-only --huggingface # download via HuggingFace (default: ModelScope)
 translate --no-stream "…"            # disable streaming output
 translate --gpu-layers 0 "…"         # force CPU
 translate --model-source huggingface "…" # download via HuggingFace (default: modelscope)

@@ -44,17 +44,29 @@ struct Args {
     #[arg(long)]
     mmproj: Option<PathBuf>,
 
-    /// Use the fast 0.8B model instead of the default 2B one
-    #[arg(long, conflicts_with = "quality")]
+    /// Use the default 2B model (mainly useful with --download-only)
+    #[arg(long)]
+    default: bool,
+
+    /// Use the fast 0.8B model
+    #[arg(long, conflicts_with = "quality", conflicts_with = "default")]
     fast: bool,
 
-    /// Use the high-quality 4B model instead of the default 2B one
-    #[arg(long)]
+    /// Use the high-quality 4B model
+    #[arg(long, conflicts_with = "fast", conflicts_with = "default")]
     quality: bool,
 
     /// Source used when auto-downloading the model
-    #[arg(long, value_enum, default_value = "modelscope")]
-    model_source: ModelSource,
+    #[arg(long, value_enum)]
+    model_source: Option<ModelSource>,
+
+    /// Download models from HuggingFace (shortcut for --model-source huggingface)
+    #[arg(long)]
+    huggingface: bool,
+
+    /// Only download the selected model variant (model + mmproj), then exit
+    #[arg(long)]
+    download_only: bool,
 
     /// Source language (default: auto-detect)
     #[arg(long, value_enum, default_value = "auto", env = "TRANSLATE_FROM")]
@@ -205,9 +217,39 @@ fn run() -> Result<()> {
     };
     let (model, model_explicit) = resolve_model(args.model.clone(), variant);
     let source = args.from.resolve();
+    // --model-source wins over --huggingface; default is ModelScope
+    let model_source = args.model_source.unwrap_or(if args.huggingface {
+        ModelSource::HuggingFace
+    } else {
+        ModelSource::ModelScope
+    });
+
+    if args.download_only {
+        let variants: Vec<&ModelVariant> = if args.fast || args.quality || args.default || args.model.is_some() {
+            vec![variant]
+        } else {
+            vec![&VARIANT_DEFAULT, &VARIANT_FAST, &VARIANT_QUALITY]
+        };
+        for v in variants {
+            let (m, _) = resolve_model(args.model.clone(), v);
+            if !m.is_file() {
+                download::download_model(v, &m, model_source)?;
+            }
+            let mmproj = match &args.mmproj {
+                Some(p) => p.clone(),
+                None => resolve_named_file(v.mmproj_file),
+            };
+            if !mmproj.is_file() {
+                download::download_mmproj(v, &mmproj, model_source)?;
+            }
+            println!("{}", m.display());
+            println!("{}", mmproj.display());
+        }
+        return Ok(());
+    }
 
     if args.native_host {
-        ensure_model(&model, model_explicit, variant, args.model_source)?;
+        ensure_model(&model, model_explicit, variant, model_source)?;
         let translator = Translator::load(&model, args.gpu_layers)?;
         return native_host::run(&translator);
     }
@@ -216,13 +258,13 @@ fn run() -> Result<()> {
         if !args.text.is_empty() {
             bail!("image mode does not accept text input (the text comes from the image itself)");
         }
-        ensure_model(&model, model_explicit, variant, args.model_source)?;
+        ensure_model(&model, model_explicit, variant, model_source)?;
         let mmproj = match &args.mmproj {
             Some(p) => p.clone(),
             None => resolve_named_file(variant.mmproj_file),
         };
         if !mmproj.is_file() {
-            download::download_mmproj(variant, &mmproj, args.model_source)?;
+            download::download_mmproj(variant, &mmproj, model_source)?;
         }
         let mut translator = Translator::load_vision(&model, &mmproj, args.gpu_layers)?;
         let region = match (args.x, args.y, args.w, args.h) {
@@ -253,7 +295,7 @@ fn run() -> Result<()> {
         no_input();
     }
 
-    ensure_model(&model, model_explicit, variant, args.model_source)?;
+    ensure_model(&model, model_explicit, variant, model_source)?;
     let translator = Translator::load(&model, args.gpu_layers)?;
     let target = args
         .to

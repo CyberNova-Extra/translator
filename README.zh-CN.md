@@ -84,6 +84,9 @@ translate --image shot.png -x 10 -y 20 -w 300 -h 200 # 只翻译指定区域
 
 translate --fast "…"                 # 快速 0.8B 变体
 translate --quality "…"              # 高质量 4B 变体
+translate --download-only            # 下载全部模型变体后退出
+translate --download-only --fast     # 只下载 0.8B 变体
+translate --download-only --huggingface # 从 HuggingFace 下载（默认 ModelScope）
 translate --model /path/to.gguf "…"  # 指定模型（或环境变量 QWEN_TRANSLATE_MODEL）
 translate --no-stream "…"            # 关闭流式输出
 translate --gpu-layers 0 "…"         # 强制纯 CPU
