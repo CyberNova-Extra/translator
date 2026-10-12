@@ -64,7 +64,9 @@ struct Args {
     #[arg(long)]
     huggingface: bool,
 
-    /// Only download the selected model variant (model + mmproj), then exit
+    /// Only download model variant(s), then exit. All variants when combined with
+    /// none of --default/--fast/--quality; otherwise just the selected one.
+    /// Other options and environment variables are ignored.
     #[arg(long)]
     download_only: bool,
 
@@ -225,25 +227,28 @@ fn run() -> Result<()> {
     });
 
     if args.download_only {
-        let variants: Vec<&ModelVariant> = if args.fast || args.quality || args.default || args.model.is_some() {
-            vec![variant]
+        // Pure download mode: only the variant flags and download-source flags apply;
+        // everything else (incl. --model/--mmproj and env vars) is ignored.
+        let variants: Vec<&ModelVariant> = if args.fast {
+            vec![&VARIANT_FAST]
+        } else if args.quality {
+            vec![&VARIANT_QUALITY]
+        } else if args.default {
+            vec![&VARIANT_DEFAULT]
         } else {
             vec![&VARIANT_DEFAULT, &VARIANT_FAST, &VARIANT_QUALITY]
         };
         for v in variants {
-            let (m, _) = resolve_model(args.model.clone(), v);
+            let m = resolve_named_file(v.model_file);
             if !m.is_file() {
                 download::download_model(v, &m, model_source)?;
             }
-            let mmproj = match &args.mmproj {
-                Some(p) => p.clone(),
-                None => resolve_named_file(v.mmproj_file),
-            };
-            if !mmproj.is_file() {
-                download::download_mmproj(v, &mmproj, model_source)?;
+            let mp = resolve_named_file(v.mmproj_file);
+            if !mp.is_file() {
+                download::download_mmproj(v, &mp, model_source)?;
             }
             println!("{}", m.display());
-            println!("{}", mmproj.display());
+            println!("{}", mp.display());
         }
         return Ok(());
     }
