@@ -1,5 +1,6 @@
 mod download;
 mod infer;
+mod logging;
 mod native_host;
 
 use std::io::{IsTerminal, Read};
@@ -20,7 +21,8 @@ const ENV_MODEL: &str = "QWEN_TRANSLATE_MODEL";
     about = "本地 Qwen3.5-0.8B 翻译（离线）",
     long_about = "本地 Qwen3.5-0.8B 翻译（离线）。\n\n\
         文本来源：命令行参数优先，否则读 stdin（适合管道组合）。\n\
-        模型文件缺失时自动下载（默认 ModelScope）。\n\
+        模型查找顺序：--model / 环境变量 > 用户数据目录 > /usr/local/share、/usr/share\n\
+        （macOS 额外含 Homebrew 前缀 /opt/homebrew/share）；都没有时自动下载到用户数据目录。\n\
         stdout 只输出译文，日志与报错走 stderr。\n\n\
         示例:\n  \
         translate \"I love programming\"\n  \
@@ -44,6 +46,10 @@ struct Args {
     #[arg(long, default_value_t = 999)]
     gpu_layers: u32,
 
+    /// llama.cpp 日志级别
+    #[arg(long, value_enum, default_value = "warn")]
+    log_level: logging::LogLevel,
+
     /// 以 Firefox 原生消息宿主模式运行（供浏览器扩展调用）
     #[arg(long)]
     native_host: bool,
@@ -52,11 +58,49 @@ struct Args {
     text: Vec<String>,
 }
 
-fn default_model_path() -> PathBuf {
+fn user_model_path() -> PathBuf {
     dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("qwen-translate")
         .join(download::DEFAULT_FILE)
+}
+
+/// 系统级模型查找路径（带模型的系统安装包装到这里）
+fn system_model_paths() -> Vec<PathBuf> {
+    let dirs: Vec<&str> = if cfg!(target_os = "macos") {
+        // Apple Silicon Homebrew / Intel Homebrew 及手动安装 / 系统包
+        vec![
+            "/opt/homebrew/share/qwen-translate",
+            "/usr/local/share/qwen-translate",
+            "/usr/share/qwen-translate",
+        ]
+    } else {
+        vec![
+            "/usr/local/share/qwen-translate",
+            "/usr/share/qwen-translate",
+        ]
+    };
+    dirs.into_iter()
+        .map(|d| PathBuf::from(d).join(download::DEFAULT_FILE))
+        .collect()
+}
+
+/// 解析模型路径：显式指定 > 用户数据目录 > 系统目录；
+/// 都找不到时返回用户目录路径（随后触发自动下载到该处）
+fn resolve_model(explicit: Option<PathBuf>) -> (PathBuf, bool) {
+    if let Some(p) = explicit {
+        return (p, true);
+    }
+    let user = user_model_path();
+    if user.is_file() {
+        return (user, false);
+    }
+    for p in system_model_paths() {
+        if p.is_file() {
+            return (p, false);
+        }
+    }
+    (user, false)
 }
 
 /// 默认路径的模型缺失时自动下载；显式指定的路径缺失则报错
@@ -84,11 +128,9 @@ fn no_input() -> ! {
 
 fn run() -> Result<()> {
     let args = Args::parse();
+    logging::init(args.log_level);
 
-    let (model, model_explicit) = match args.model {
-        Some(p) => (p, true),
-        None => (default_model_path(), false),
-    };
+    let (model, model_explicit) = resolve_model(args.model);
 
     if args.native_host {
         ensure_model(&model, model_explicit, args.model_source)?;

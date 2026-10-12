@@ -68,26 +68,47 @@ jobs:
           fi
           ls -lh "$PKG"*.tar.xz "$PKG-sha256sums.txt"
 
-      - name: Linux 安装包（deb / rpm / pacman，均不含模型）
+      - name: Linux 安装包（deb / rpm / pacman，带模型与不带模型）
         if: runner.os == 'Linux'
         shell: bash
         run: |
           set -euo pipefail
           sudo gem install fpm --no-document
           VER="${GITHUB_REF_NAME#v}"
+          MODEL_DIR="${{ matrix.model_dir }}"
           rm -rf pkgroot
           mkdir -p pkgroot/usr/bin pkgroot/usr/share/qwen-translate
           cp target/release/translate pkgroot/usr/bin/
           cp -r firefox scripts README.md LICENSE pkgroot/usr/share/qwen-translate/
 
-          FPM_COMMON="-s dir -C pkgroot -n qwen-translate -v $VER --license GPL-3.0-only \
+          FPM_COMMON="-s dir -C pkgroot -v $VER --license GPL-3.0-only \
             --maintainer TUST-Open-Source-Club \
-            --description '本地离线翻译 CLI（Qwen3.5-0.8B + llama.cpp），模型首次运行自动下载' \
             --url https://github.com/TUST-Open-Source-Club/translator"
-          fpm $FPM_COMMON -t deb    --depends libvulkan1         -p "qwen-translate_${VER}_amd64.deb"
-          fpm $FPM_COMMON -t rpm    --depends vulkan-loader      -p "qwen-translate-${VER}-1.x86_64.rpm"
-          fpm $FPM_COMMON -t pacman --depends vulkan-icd-loader  -p "qwen-translate-${VER}-1-x86_64.pkg.tar.zst"
-          ls -lh qwen-translate_*.deb qwen-translate-*.rpm qwen-translate-*.pkg.tar.zst
+          # 不带模型：首次运行自动下载
+          fpm $FPM_COMMON -n qwen-translate -t deb    --depends libvulkan1 \
+            --description '本地离线翻译 CLI（Qwen3.5-0.8B + llama.cpp），模型首次运行自动下载' \
+            -p "qwen-translate_${VER}_amd64.deb"
+          fpm $FPM_COMMON -n qwen-translate -t rpm    --depends vulkan-loader \
+            --description '本地离线翻译 CLI（Qwen3.5-0.8B + llama.cpp），模型首次运行自动下载' \
+            -p "qwen-translate-${VER}-1.x86_64.rpm"
+          fpm $FPM_COMMON -n qwen-translate -t pacman --depends vulkan-icd-loader \
+            --description '本地离线翻译 CLI（Qwen3.5-0.8B + llama.cpp），模型首次运行自动下载' \
+            -p "qwen-translate-${VER}-1-x86_64.pkg.tar.zst"
+          # 带模型：模型装进 /usr/share/qwen-translate/（全局查找路径），离线可用
+          cp "$MODEL_DIR"/*.gguf pkgroot/usr/share/qwen-translate/
+          fpm $FPM_COMMON -n qwen-translate-full -t deb    --depends libvulkan1 \
+            --conflicts qwen-translate \
+            --description '本地离线翻译 CLI（Qwen3.5-0.8B + llama.cpp），内置模型' \
+            -p "qwen-translate-full_${VER}_amd64.deb"
+          fpm $FPM_COMMON -n qwen-translate-full -t rpm    --depends vulkan-loader \
+            --conflicts qwen-translate \
+            --description '本地离线翻译 CLI（Qwen3.5-0.8B + llama.cpp），内置模型' \
+            -p "qwen-translate-full-${VER}-1.x86_64.rpm"
+          fpm $FPM_COMMON -n qwen-translate-full -t pacman --depends vulkan-icd-loader \
+            --conflicts qwen-translate \
+            --description '本地离线翻译 CLI（Qwen3.5-0.8B + llama.cpp），内置模型' \
+            -p "qwen-translate-full-${VER}-1-x86_64.pkg.tar.zst"
+          ls -lh *.deb *.rpm *.pkg.tar.zst
 
       - name: 发布到 GitHub Release
         uses: softprops/action-gh-release@v2
@@ -96,6 +117,6 @@ jobs:
           files: |
             qwen-translate-*.tar.xz
             qwen-translate-*-sha256sums.txt
-            qwen-translate_*.deb
-            qwen-translate-*.rpm
-            qwen-translate-*.pkg.tar.zst
+            qwen-translate*.deb
+            qwen-translate*.rpm
+            qwen-translate*.pkg.tar.zst

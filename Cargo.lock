@@ -637,6 +637,7 @@ dependencies = [
  "clap",
  "dirs",
  "llama-cpp-2",
+ "llama-cpp-sys-2",
  "serde",
  "serde_json",
 ]

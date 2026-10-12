@@ -19,6 +19,7 @@
 | `qwen-translate-*-linux-x86_64.tar.xz` | Linux 二进制，模型首用自动下载 |
 | `qwen-translate-*-linux-x86_64-with-model.tar.xz` | 同上但内置模型，离线可用 |
 | `qwen-translate_*_amd64.deb` / `*-1.x86_64.rpm` / `*-1-x86_64.pkg.tar.zst` | Debian / Fedora / Arch 安装包（不含模型） |
+| `qwen-translate-full_*` / `qwen-translate-full-*` | 上述三格式的**带模型**版本（模型装进 `/usr/share/qwen-translate/`，离线可用） |
 | `qwen-translate-*-macos-arm64.tar.xz`（及 `-with-model`） | macOS（Apple Silicon，Metal 加速） |
 
 tar.xz 解压后运行 `scripts/install.sh`（装到 `~/.local/bin`）。macOS 二进制未签名，首次运行前需 `xattr -d com.apple.quarantine ~/.local/bin/translate`。
@@ -62,12 +63,19 @@ translate --to en "你好"            # 强制目标语言
 translate --model /path/to.gguf "…" # 指定模型（或环境变量 QWEN_TRANSLATE_MODEL）
 translate --gpu-layers 0 "…"        # 强制纯 CPU
 translate --model-source huggingface "…"  # 自动下载走 HuggingFace（默认 modelscope）
+translate --log-level info "…"           # 显示 llama.cpp 内部日志（默认 warn，静默）
 ```
 
 参数与 stdin 同时存在时优先用参数；两者都没有时打印帮助。解码为贪心策略（确定性输出）。
 模型默认非思考模式（Qwen3.5-0.8B 本身即如此，不支持 /no_think 软开关）。
 
-模型存放位置：Linux `~/.local/share/qwen-translate/`，macOS `~/Library/Application Support/qwen-translate/`。
+模型查找顺序（命中即用）：
+
+1. `--model` 参数或 `QWEN_TRANSLATE_MODEL` 环境变量（显式指定，缺失则报错，不自动下载）
+2. 用户数据目录：Linux `~/.local/share/qwen-translate/`，macOS `~/Library/Application Support/qwen-translate/`
+3. 系统目录：`/usr/local/share/qwen-translate/`、`/usr/share/qwen-translate/`（macOS 额外含 Homebrew 前缀 `/opt/homebrew/share/qwen-translate/`）——带模型的安装包就装在这里
+4. 都没有 → 自动下载到用户数据目录（默认 ModelScope）
+
 手动预下载/换量化：`scripts/download-model.sh`（支持 `MODEL_SOURCE` / `MODEL_REPO` / `MODEL_NAME` 环境变量覆盖）。
 
 ## Firefox 扩展
