@@ -52,8 +52,6 @@ jobs:
 
       - name: Smoke test (image translation)
         run: |
-          convert -size 400x100 xc:white -pointsize 24 -fill black -gravity center -annotate +0+0 "I love programming" /tmp/translate-ci.png 2>/dev/null \
-            || magick -size 400x100 xc:white -pointsize 24 -fill black -gravity center -annotate +0+0 "I love programming" /tmp/translate-ci.png
-          out=$(./target/release/translate --model-source huggingface --image /tmp/translate-ci.png)
+          out=$(./target/release/translate --model-source huggingface --image tests/fixtures/hello-en.png)
           echo "image->zh: $out"
           echo "$out" | grep -q "编程"
