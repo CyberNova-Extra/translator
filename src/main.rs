@@ -3,158 +3,117 @@ mod infer;
 mod native_host;
 
 use std::io::{IsTerminal, Read};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{bail, Result};
+use clap::{CommandFactory, Parser};
 use download::ModelSource;
 use infer::{TargetLang, Translator};
 
-const DEFAULT_MODEL_FILE: &str = download::DEFAULT_FILE;
 const ENV_MODEL: &str = "QWEN_TRANSLATE_MODEL";
 
-const USAGE: &str = "translate — 本地 Qwen3.5-0.8B 翻译
+#[derive(Parser)]
+#[command(
+    name = "translate",
+    version,
+    about = "本地 Qwen3.5-0.8B 翻译（离线）",
+    long_about = "本地 Qwen3.5-0.8B 翻译（离线）。\n\n\
+        文本来源：命令行参数优先，否则读 stdin（适合管道组合）。\n\
+        模型文件缺失时自动下载（默认 ModelScope）。\n\
+        stdout 只输出译文，日志与报错走 stderr。\n\n\
+        示例:\n  \
+        translate \"I love programming\"\n  \
+        echo 我喜欢编程 | translate\n  \
+        translate < file.txt"
+)]
+struct Args {
+    /// GGUF 模型路径
+    #[arg(long, env = ENV_MODEL)]
+    model: Option<PathBuf>,
 
-用法:
-  translate [选项] [文本...]     翻译参数中的文本
-  echo 文本 | translate          翻译 stdin 的内容
-  translate < file.txt           翻译文件内容
-
-模型文件缺失时会自动下载（默认从 ModelScope）。
-
-选项:
-  --model <路径>                 GGUF 模型路径（也可用环境变量 QWEN_TRANSLATE_MODEL）
-  --model-source <源>            自动下载源: modelscope（默认）| huggingface
-  --to <zh|en>                   目标语言（默认自动：中文等→英文，其他→中文）
-  --gpu-layers <N>               卸载到 GPU 的层数（默认 999 全部；无 GPU 自动回退 CPU）
-  --native-host                  以 Firefox 原生消息宿主模式运行（供浏览器扩展调用）
-  -h, --help                     显示本帮助
-";
-
-struct Config {
-    model: PathBuf,
-    model_explicit: bool,
+    /// 模型自动下载源
+    #[arg(long, value_enum, default_value = "modelscope")]
     model_source: ModelSource,
-    gpu_layers: u32,
+
+    /// 目标语言（默认自动：中文等→英文，其他→中文）
+    #[arg(long, value_enum)]
     to: Option<TargetLang>,
+
+    /// 卸载到 GPU 的层数（无 GPU 时自动回退 CPU）
+    #[arg(long, default_value_t = 999)]
+    gpu_layers: u32,
+
+    /// 以 Firefox 原生消息宿主模式运行（供浏览器扩展调用）
+    #[arg(long)]
     native_host: bool,
-    text_parts: Vec<String>,
+
+    /// 要翻译的文本（不给则从 stdin 读取）
+    text: Vec<String>,
 }
 
 fn default_model_path() -> PathBuf {
     dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("qwen-translate")
-        .join(DEFAULT_MODEL_FILE)
-}
-
-fn parse_args() -> Result<Option<Config>> {
-    let mut cfg = Config {
-        model: default_model_path(),
-        model_explicit: false,
-        model_source: ModelSource::default(),
-        gpu_layers: 999,
-        to: None,
-        native_host: false,
-        text_parts: Vec::new(),
-    };
-    if let Some(p) = std::env::var_os(ENV_MODEL) {
-        cfg.model = PathBuf::from(p);
-        cfg.model_explicit = true;
-    }
-
-    let mut args = std::env::args().skip(1);
-    while let Some(arg) = args.next() {
-        let (flag, inline_val) = match arg.split_once('=') {
-            Some((f, v)) if f.starts_with("--") => (f.to_string(), Some(v.to_string())),
-            _ => (arg, None),
-        };
-        let mut take_value = |name: &str| -> Result<String> {
-            match inline_val {
-                Some(ref v) => Ok(v.clone()),
-                None => args
-                    .next()
-                    .ok_or_else(|| usage_err(&format!("{name} 需要参数"))),
-            }
-        };
-        match flag.as_str() {
-            "-h" | "--help" => {
-                print!("{USAGE}");
-                return Ok(None);
-            }
-            "--native-host" => cfg.native_host = true,
-            "--model" => {
-                cfg.model = PathBuf::from(take_value("--model")?);
-                cfg.model_explicit = true;
-            }
-            "--model-source" => {
-                cfg.model_source = ModelSource::parse(&take_value("--model-source")?)?;
-            }
-            "--to" => {
-                cfg.to = Some(match take_value("--to")?.as_str() {
-                    "zh" => TargetLang::Zh,
-                    "en" => TargetLang::En,
-                    _ => return Err(usage_err("--to 只支持 zh 或 en")),
-                });
-            }
-            "--gpu-layers" => {
-                cfg.gpu_layers = take_value("--gpu-layers")?
-                    .parse()
-                    .map_err(|_| usage_err("--gpu-layers 需要非负整数"))?;
-            }
-            _ => cfg.text_parts.push(flag),
-        }
-    }
-    Ok(Some(cfg))
-}
-
-fn usage_err(msg: &str) -> anyhow::Error {
-    anyhow::anyhow!("{msg}\n\n{USAGE}")
+        .join(download::DEFAULT_FILE)
 }
 
 /// 默认路径的模型缺失时自动下载；显式指定的路径缺失则报错
-fn ensure_model(cfg: &Config) -> Result<()> {
-    if cfg.model.is_file() {
+fn ensure_model(model: &Path, explicit: bool, source: ModelSource) -> Result<()> {
+    if model.is_file() {
         return Ok(());
     }
-    if cfg.model_explicit {
+    if explicit {
         bail!(
             "找不到模型文件: {}\n（--model / {ENV_MODEL} 显式指定的路径不会自动下载，请检查路径）",
-            cfg.model.display()
+            model.display()
         );
     }
-    download::download_model(&cfg.model, cfg.model_source)
+    download::download_model(model, source)
+}
+
+fn no_input() -> ! {
+    Args::command()
+        .error(
+            clap::error::ErrorKind::InvalidValue,
+            "没有输入文本（用参数或 stdin 传入）",
+        )
+        .exit()
 }
 
 fn run() -> Result<()> {
-    let Some(cfg) = parse_args()? else {
-        return Ok(());
+    let args = Args::parse();
+
+    let (model, model_explicit) = match args.model {
+        Some(p) => (p, true),
+        None => (default_model_path(), false),
     };
 
-    if cfg.native_host {
-        ensure_model(&cfg)?;
-        let translator = Translator::load(&cfg.model, cfg.gpu_layers)?;
+    if args.native_host {
+        ensure_model(&model, model_explicit, args.model_source)?;
+        let translator = Translator::load(&model, args.gpu_layers)?;
         return native_host::run(&translator);
     }
 
-    let text = if !cfg.text_parts.is_empty() {
-        cfg.text_parts.join(" ")
+    let text = if !args.text.is_empty() {
+        args.text.join(" ")
     } else if !std::io::stdin().is_terminal() {
         let mut buf = String::new();
         std::io::stdin().read_to_string(&mut buf)?;
         buf
     } else {
-        return Err(usage_err("没有输入文本（用参数或 stdin 传入）"));
+        no_input();
     };
 
     let text = text.trim();
     if text.is_empty() {
-        return Err(usage_err("输入文本为空"));
+        no_input();
     }
 
-    ensure_model(&cfg)?;
-    let translator = Translator::load(&cfg.model, cfg.gpu_layers)?;
-    let target = cfg.to.unwrap_or_else(|| TargetLang::detect(text));
+    ensure_model(&model, model_explicit, args.model_source)?;
+    let translator = Translator::load(&model, args.gpu_layers)?;
+    let target = args.to.unwrap_or_else(|| TargetLang::detect(text));
     let out = translator.translate(text, target)?;
     print!("{out}");
     if !out.ends_with('\n') {

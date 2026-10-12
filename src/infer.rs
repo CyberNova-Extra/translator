@@ -12,7 +12,8 @@ use llama_cpp_2::sampling::LlamaSampler;
 const N_CTX: u32 = 4096;
 const MAX_PROMPT_TOKENS: usize = 3700;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, clap::ValueEnum)]
+#[value(rename_all = "lowercase")]
 pub enum TargetLang {
     Zh,
     En,

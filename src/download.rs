@@ -6,22 +6,16 @@ use anyhow::{bail, Context, Result};
 pub const DEFAULT_REPO: &str = "unsloth/Qwen3.5-0.8B-GGUF";
 pub const DEFAULT_FILE: &str = "Qwen3.5-0.8B-Q4_K_M.gguf";
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, clap::ValueEnum)]
+#[value(rename_all = "lowercase")]
 pub enum ModelSource {
     #[default]
     ModelScope,
+    #[value(alias = "hf")]
     HuggingFace,
 }
 
 impl ModelSource {
-    pub fn parse(s: &str) -> Result<Self> {
-        match s {
-            "modelscope" => Ok(Self::ModelScope),
-            "huggingface" | "hf" => Ok(Self::HuggingFace),
-            _ => bail!("--model-source 只支持 modelscope 或 huggingface"),
-        }
-    }
-
     fn urls(self, repo: &str, file: &str) -> Vec<String> {
         match self {
             // ModelScope 直链，国内速度快
