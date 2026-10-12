@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            features: vulkan
+            model_dir: ~/.local/share/qwen-translate
+          - os: macos-latest
+            features: metal
+            model_dir: ~/Library/Application Support/qwen-translate
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Linux 构建依赖
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake clang spirv-headers libvulkan-dev glslang-tools
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: 构建
+        run: cargo build --release --features ${{ matrix.features }}
+
+      - name: 缓存模型
+        uses: actions/cache@v4
+        with:
+          path: ${{ matrix.model_dir }}
+          key: model-qwen35-0.8b-q4_k_m-v1
+
+      - name: 冒烟测试（stdin 管道）
+        run: |
+          out=$(echo "I love programming" | ./target/release/translate --model-source huggingface)
+          echo "英→中: $out"
+          echo "$out" | grep -q "编程"
+
+      - name: 冒烟测试（命令行参数）
+        run: |
+          out=$(./target/release/translate "今天天气很好")
+          echo "中→英: $out"
+          echo "$out" | grep -qi "weather"

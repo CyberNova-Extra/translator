@@ -1,0 +1,101 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            features: vulkan
+            target_name: linux-x86_64
+            model_dir: ~/.local/share/qwen-translate
+          - os: macos-latest
+            features: metal
+            target_name: macos-arm64
+            model_dir: ~/Library/Application Support/qwen-translate
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Linux 构建依赖
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake clang spirv-headers libvulkan-dev glslang-tools rpm ruby ruby-dev build-essential
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: 构建
+        run: cargo build --release --features ${{ matrix.features }}
+
+      - name: 裁剪二进制
+        run: strip target/release/translate
+
+      - name: 下载模型（用于带模型的包）
+        run: MODEL_SOURCE=huggingface bash scripts/download-model.sh
+
+      - name: 组装 tar.xz（不带模型 / 带模型）
+        shell: bash
+        run: |
+          set -euo pipefail
+          VER="${GITHUB_REF_NAME}"
+          PKG="qwen-translate-${VER}-${{ matrix.target_name }}"
+          rm -rf "$PKG"
+          mkdir -p "$PKG"
+          cp target/release/translate "$PKG/"
+          cp README.md LICENSE "$PKG/"
+          cp -r scripts firefox "$PKG/"
+
+          tar -cJf "$PKG.tar.xz" "$PKG"
+
+          mkdir -p "$PKG/model"
+          MODEL_DIR="${{ matrix.model_dir }}"
+          cp "$MODEL_DIR"/*.gguf "$PKG/model/"
+          tar -cJf "$PKG-with-model.tar.xz" "$PKG"
+
+          if [ "$(uname)" = Darwin ]; then
+            shasum -a 256 "$PKG.tar.xz" "$PKG-with-model.tar.xz" > "$PKG-sha256sums.txt"
+          else
+            sha256sum "$PKG.tar.xz" "$PKG-with-model.tar.xz" > "$PKG-sha256sums.txt"
+          fi
+          ls -lh "$PKG"*.tar.xz "$PKG-sha256sums.txt"
+
+      - name: Linux 安装包（deb / rpm / pacman，均不含模型）
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo gem install fpm --no-document
+          VER="${GITHUB_REF_NAME#v}"
+          rm -rf pkgroot
+          mkdir -p pkgroot/usr/bin pkgroot/usr/share/qwen-translate
+          cp target/release/translate pkgroot/usr/bin/
+          cp -r firefox scripts README.md LICENSE pkgroot/usr/share/qwen-translate/
+
+          FPM_COMMON="-s dir -C pkgroot -n qwen-translate -v $VER --license GPL-3.0-only \
+            --maintainer TUST-Open-Source-Club \
+            --description '本地离线翻译 CLI（Qwen3.5-0.8B + llama.cpp），模型首次运行自动下载' \
+            --url https://github.com/TUST-Open-Source-Club/translator"
+          fpm $FPM_COMMON -t deb    --depends libvulkan1         -p "qwen-translate_${VER}_amd64.deb"
+          fpm $FPM_COMMON -t rpm    --depends vulkan-loader      -p "qwen-translate-${VER}-1.x86_64.rpm"
+          fpm $FPM_COMMON -t pacman --depends vulkan-icd-loader  -p "qwen-translate-${VER}-1-x86_64.pkg.tar.zst"
+          ls -lh qwen-translate_*.deb qwen-translate-*.rpm qwen-translate-*.pkg.tar.zst
+
+      - name: 发布到 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            qwen-translate-*.tar.xz
+            qwen-translate-*-sha256sums.txt
+            qwen-translate_*.deb
+            qwen-translate-*.rpm
+            qwen-translate-*.pkg.tar.zst

@@ -1,0 +1,22 @@
+[package]
+name = "translate"
+version = "0.1.0"
+edition = "2021"
+description = "本地离线翻译 CLI（Qwen3.5-0.8B + llama.cpp）"
+license = "GPL-3.0-only"
+repository = "https://github.com/TUST-Open-Source-Club/translator"
+
+[dependencies]
+llama-cpp-2 = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "6"
+anyhow = "1"
+
+[features]
+cuda = ["llama-cpp-2/cuda"]
+metal = ["llama-cpp-2/metal"]
+vulkan = ["llama-cpp-2/vulkan"]
+
+[profile.release]
+lto = "thin"
