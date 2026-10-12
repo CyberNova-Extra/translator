@@ -82,9 +82,8 @@ TRANSLATE_TO=ja translate "你好"     # env var default; CLI flags win
 translate --image shot.png                               # translate a whole image
 translate --image shot.png -x 10 -y 20 -w 300 -h 200     # translate a region only
 
-translate --model /path/to.gguf "…"  # custom model (or QWEN_TRANSLATE_MODEL)
-translate --fast "…"                 # fast 0.8B variant
-translate --quality "…"              # high-quality 4B variant
+translate --model /path/to.gguf "…"  # GGUF path or variant keyword (fast/default/quality)
+translate --fast "…"                 # same as --model fast; --quality/--default likewise
 translate --download-only            # download all model variants, then exit
 translate --download-only --fast     # download only the 0.8B variant
 translate --download-only --huggingface # download via HuggingFace (default: ModelScope)
@@ -99,12 +98,23 @@ The model runs in non-thinking mode (Qwen3.5-0.8B is non-thinking by default; `/
 
 Model lookup order (first hit wins):
 
-1. `--model` / `QWEN_TRANSLATE_MODEL` (explicit; never auto-downloaded)
+1. `--model` / `QWEN_TRANSLATE_MODEL` — a variant keyword (`fast`/`default`/`quality`) or an explicit GGUF path (explicit paths are never auto-downloaded; a missing file is an error)
 2. User data dir: `~/.local/share/qwen-translate/` (Linux), `~/Library/Application Support/qwen-translate/` (macOS)
 3. System dirs: `/usr/local/share/qwen-translate/`, `/usr/share/qwen-translate/` (plus `/opt/homebrew/share/qwen-translate/` on macOS) — where model-bundled packages install
 4. Otherwise auto-downloads to the user data dir (ModelScope by default)
 
 Pre-download or switch quants with `scripts/download-model.sh` (`MODEL_SOURCE` / `MODEL_REPO` / `MODEL_NAME` env overrides).
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| 0 | success |
+| 1 | runtime error (inference, I/O, …) |
+| 2 | usage error (bad args, no input, text too long, …) |
+| 3 | model error (missing explicit path, load failure, …) |
+| 4 | download failure |
+| 5 | the model does not support the requested feature (e.g. images) |
 
 ## Firefox extension
 

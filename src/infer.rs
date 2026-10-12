@@ -2,7 +2,7 @@ use std::io::Write;
 use std::num::NonZeroU32;
 use std::path::Path;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use llama_cpp_2::context::params::LlamaContextParams;
 use llama_cpp_2::context::LlamaContext;
 use llama_cpp_2::llama_backend::LlamaBackend;
@@ -150,10 +150,14 @@ impl Translator {
         let mmproj_str = mmproj_path
             .to_str()
             .context("mmproj path contains invalid characters")?;
-        t.mtmd = Some(
-            MtmdContext::init_from_file(mmproj_str, &t.model, &params)
-                .with_context(|| format!("failed to load mmproj: {}", mmproj_path.display()))?,
-        );
+        let mtmd = MtmdContext::init_from_file(mmproj_str, &t.model, &params)
+            .with_context(|| format!("failed to load mmproj: {}", mmproj_path.display()))?;
+        if !mtmd.support_vision() {
+            return Err(crate::err::unsupported(
+                "this model/mmproj combination does not support image input",
+            ));
+        }
+        t.mtmd = Some(mtmd);
         Ok(t)
     }
 
@@ -229,10 +233,10 @@ impl Translator {
         let vocab = self.model.vocab();
         let tokens = vocab.tokenize(prompt.as_bytes(), true, true);
         if tokens.len() > MAX_PROMPT_TOKENS {
-            bail!(
+            return Err(crate::err::usage(format!(
                 "text too long ({} tokens, limit {MAX_PROMPT_TOKENS})",
                 tokens.len()
-            );
+            )));
         }
 
         let mut ctx = self.model.new_context(&self.backend, self.ctx_params(N_CTX))?;
@@ -270,11 +274,11 @@ impl Translator {
         let img = match region {
             Some((x, y, w, h)) => {
                 if w == 0 || h == 0 || x + w > img.width() || y + h > img.height() {
-                    bail!(
+                    return Err(crate::err::usage(format!(
                         "region out of bounds: image is {}x{}, requested x={x} y={y} w={w} h={h}",
                         img.width(),
                         img.height()
-                    );
+                    )));
                 }
                 img.crop_imm(x, y, w, h)
             }

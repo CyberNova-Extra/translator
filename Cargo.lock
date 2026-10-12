@@ -1418,6 +1418,7 @@ dependencies = [
  "llama-cpp-sys-2",
  "serde",
  "serde_json",
+ "thiserror",
 ]
 
 [[package]]

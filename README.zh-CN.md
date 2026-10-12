@@ -82,12 +82,11 @@ TRANSLATE_TO=ja translate "你好"     # 环境变量设默认目标语言（命
 translate --image shot.png                           # 整图翻译
 translate --image shot.png -x 10 -y 20 -w 300 -h 200 # 只翻译指定区域
 
-translate --fast "…"                 # 快速 0.8B 变体
-translate --quality "…"              # 高质量 4B 变体
+translate --fast "…"                 # 等效 --model fast；--quality/--default 同理
 translate --download-only            # 下载全部模型变体后退出
 translate --download-only --fast     # 只下载 0.8B 变体
 translate --download-only --huggingface # 从 HuggingFace 下载（默认 ModelScope）
-translate --model /path/to.gguf "…"  # 指定模型（或环境变量 QWEN_TRANSLATE_MODEL）
+translate --model /path/to.gguf "…"  # GGUF 路径或变体关键字（fast/default/quality）
 translate --no-stream "…"            # 关闭流式输出
 translate --gpu-layers 0 "…"         # 强制纯 CPU
 translate --model-source huggingface "…" # 自动下载走 HuggingFace（默认 modelscope）
@@ -99,12 +98,23 @@ translate --log-level info "…"       # 显示 llama.cpp 内部日志（默认 
 
 模型查找顺序（命中即用）：
 
-1. `--model` 参数或 `QWEN_TRANSLATE_MODEL` 环境变量（显式指定，缺失则报错，不自动下载）
+1. `--model` / `QWEN_TRANSLATE_MODEL`（可为变体关键字 fast/default/quality，或显式 GGUF 路径；显式路径缺失则报错，不自动下载）
 2. 用户数据目录：Linux `~/.local/share/qwen-translate/`，macOS `~/Library/Application Support/qwen-translate/`
 3. 系统目录：`/usr/local/share/qwen-translate/`、`/usr/share/qwen-translate/`（macOS 额外含 Homebrew 前缀 `/opt/homebrew/share/qwen-translate/`）——带模型的安装包就装在这里
 4. 都没有 → 自动下载到用户数据目录（默认 ModelScope）
 
 手动预下载/换变体：`scripts/download-model.sh`（支持 `VARIANT=default/fast/quality`、`MODEL_SOURCE` 环境变量）。
+
+## 退出码
+
+| 码 | 含义 |
+| --- | --- |
+| 0 | 成功 |
+| 1 | 运行时错误（推理、IO 等） |
+| 2 | 用法错误（参数非法、无输入、文本过长等） |
+| 3 | 模型错误（显式路径缺失、加载失败等） |
+| 4 | 下载失败 |
+| 5 | 模型不支持所请求的功能（如图片） |
 
 ## Firefox 扩展
 

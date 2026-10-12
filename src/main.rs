@@ -1,15 +1,17 @@
 mod download;
+mod err;
 mod infer;
 mod logging;
 mod native_host;
 
 use std::io::{IsTerminal, Read};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use download::{ModelSource, ModelVariant, VARIANT_DEFAULT, VARIANT_FAST, VARIANT_QUALITY};
+use err::AppError;
 use infer::{default_target, Lang, SourceLang, Translator};
 
 const ENV_MODEL: &str = "QWEN_TRANSLATE_MODEL";
@@ -23,36 +25,37 @@ const ENV_MODEL: &str = "QWEN_TRANSLATE_MODEL";
     long_about = "Local offline translation with Qwen3.5 (text and images).\n\n\
         Input: command-line arguments take precedence, otherwise stdin is read (pipe-friendly).\n\
         Image translation: pass an image via --image; -x/-y/-w/-h crop the region to translate.\n\
-        Models: the default variant favors quality; --fast switches to the 0.8B variant.\n\
+        Models: 2B by default; --fast/--quality (or --model fast/quality) switch to 0.8B/4B.\n\
         Model lookup order: --model / env var > user data dir > /usr/local/share, /usr/share\n\
         (on macOS also the Homebrew prefix /opt/homebrew/share); auto-downloads to the user\n\
         data dir when not found anywhere.\n\
         stdout carries only results; logs and errors go to stderr.\n\n\
+        Exit codes: 0 ok, 1 runtime, 2 usage, 3 model, 4 download, 5 unsupported.\n\n\
         Examples:\n  \
         translate \"I love programming\"\n  \
         echo 我喜欢编程 | translate\n  \
         translate --to ja \"你好\"\n  \
-        translate --fast \"quick answer\"\n  \
+        translate --model fast \"quick answer\"\n  \
         translate --image shot.png -x 10 -y 20 -w 300 -h 200"
 )]
 struct Args {
-    /// Path to the GGUF model
+    /// Path to a GGUF model file, or a variant keyword: default (2B) / fast (0.8B) / quality (4B)
     #[arg(long, env = ENV_MODEL)]
-    model: Option<PathBuf>,
+    model: Option<String>,
 
-    /// Path to the mmproj projector weights (image translation)
+    /// Path to the mmproj projector weights (required for --image with a custom --model)
     #[arg(long)]
     mmproj: Option<PathBuf>,
 
-    /// Use the default 2B model (mainly useful with --download-only)
+    /// Use the default 2B model (same as --model default)
     #[arg(long)]
     default: bool,
 
-    /// Use the fast 0.8B model
+    /// Use the fast 0.8B model (same as --model fast)
     #[arg(long, conflicts_with = "quality", conflicts_with = "default")]
     fast: bool,
 
-    /// Use the high-quality 4B model
+    /// Use the high-quality 4B model (same as --model quality)
     #[arg(long, conflicts_with = "fast", conflicts_with = "default")]
     quality: bool,
 
@@ -162,30 +165,70 @@ fn resolve_named_file(file: &str) -> PathBuf {
     user
 }
 
-fn resolve_model(explicit: Option<PathBuf>, variant: &ModelVariant) -> (PathBuf, bool) {
-    match explicit {
-        Some(p) => (p, true),
-        None => (resolve_named_file(variant.model_file), false),
-    }
+/// A model given as a file path is explicit: it is never auto-downloaded,
+/// and image mode requires an explicit --mmproj.
+struct ModelChoice {
+    path: PathBuf,
+    explicit: bool,
+    variant: &'static ModelVariant,
 }
 
-/// Auto-download when the default model is missing; error out for explicit paths
-fn ensure_model(
-    model: &Path,
-    explicit: bool,
-    variant: &ModelVariant,
-    source: ModelSource,
-) -> Result<()> {
-    if model.is_file() {
+fn resolve_model_choice(args: &Args) -> Result<ModelChoice> {
+    let flag_variant = if args.fast {
+        Some(&VARIANT_FAST)
+    } else if args.quality {
+        Some(&VARIANT_QUALITY)
+    } else if args.default {
+        Some(&VARIANT_DEFAULT)
+    } else {
+        None
+    };
+    let kw_variant = match args.model.as_deref() {
+        Some("fast") => Some(&VARIANT_FAST),
+        Some("quality") => Some(&VARIANT_QUALITY),
+        Some("default") => Some(&VARIANT_DEFAULT),
+        _ => None,
+    };
+    if let (Some(f), Some(k)) = (flag_variant, kw_variant) {
+        if !std::ptr::eq(f, k) {
+            return Err(err::usage(format!(
+                "conflicting model variants: --{} vs --model {}",
+                if args.fast {
+                    "fast"
+                } else if args.quality {
+                    "quality"
+                } else {
+                    "default"
+                },
+                args.model.as_deref().unwrap()
+            )));
+        }
+    }
+    let variant: &ModelVariant = flag_variant.or(kw_variant).unwrap_or(&VARIANT_DEFAULT);
+    let (path, explicit) = match &args.model {
+        Some(p) if kw_variant.is_none() => (PathBuf::from(p), true),
+        _ => (resolve_named_file(variant.model_file), false),
+    };
+    Ok(ModelChoice {
+        path,
+        explicit,
+        variant,
+    })
+}
+
+/// Auto-download when the model is missing; error out for explicit paths
+fn ensure_model(choice: &ModelChoice, source: ModelSource) -> Result<()> {
+    if choice.path.is_file() {
         return Ok(());
     }
-    if explicit {
-        bail!(
+    if choice.explicit {
+        return Err(err::model(format!(
             "model file not found: {}\n(paths set via --model / {ENV_MODEL} are not auto-downloaded; please check the path)",
-            model.display()
-        );
+            choice.path.display()
+        )));
     }
-    download::download_model(variant, model, source)
+    download::download_model(choice.variant, &choice.path, source)
+        .map_err(|e| err::or_kind(e, AppError::Download))
 }
 
 fn no_input() -> ! {
@@ -210,15 +253,6 @@ fn run() -> Result<()> {
     let args = Args::parse();
     logging::init(args.log_level);
 
-    let variant = if args.fast {
-        &VARIANT_FAST
-    } else if args.quality {
-        &VARIANT_QUALITY
-    } else {
-        &VARIANT_DEFAULT
-    };
-    let (model, model_explicit) = resolve_model(args.model.clone(), variant);
-    let source = args.from.resolve();
     // --model-source wins over --huggingface; default is ModelScope
     let model_source = args.model_source.unwrap_or(if args.huggingface {
         ModelSource::HuggingFace
@@ -241,11 +275,13 @@ fn run() -> Result<()> {
         for v in variants {
             let m = resolve_named_file(v.model_file);
             if !m.is_file() {
-                download::download_model(v, &m, model_source)?;
+                download::download_model(v, &m, model_source)
+                    .map_err(|e| err::or_kind(e, AppError::Download))?;
             }
             let mp = resolve_named_file(v.mmproj_file);
             if !mp.is_file() {
-                download::download_mmproj(v, &mp, model_source)?;
+                download::download_mmproj(v, &mp, model_source)
+                    .map_err(|e| err::or_kind(e, AppError::Download))?;
             }
             println!("{}", m.display());
             println!("{}", mp.display());
@@ -253,25 +289,41 @@ fn run() -> Result<()> {
         return Ok(());
     }
 
+    let choice = resolve_model_choice(&args)?;
+    let source = args.from.resolve();
+
     if args.native_host {
-        ensure_model(&model, model_explicit, variant, model_source)?;
-        let translator = Translator::load(&model, args.gpu_layers)?;
+        ensure_model(&choice, model_source)?;
+        let translator = Translator::load(&choice.path, args.gpu_layers)
+            .map_err(|e| err::or_kind(e, AppError::Model))?;
         return native_host::run(&translator);
     }
 
     if let Some(image_path) = &args.image {
         if !args.text.is_empty() {
-            bail!("image mode does not accept text input (the text comes from the image itself)");
+            return Err(err::usage(
+                "image mode does not accept text input (the text comes from the image itself)",
+            ));
         }
-        ensure_model(&model, model_explicit, variant, model_source)?;
+        ensure_model(&choice, model_source)?;
         let mmproj = match &args.mmproj {
             Some(p) => p.clone(),
-            None => resolve_named_file(variant.mmproj_file),
+            None => {
+                if choice.explicit {
+                    return Err(err::usage(
+                        "--image with a custom --model also requires --mmproj \
+                         (the projector weights must match the model)",
+                    ));
+                }
+                resolve_named_file(choice.variant.mmproj_file)
+            }
         };
         if !mmproj.is_file() {
-            download::download_mmproj(variant, &mmproj, model_source)?;
+            download::download_mmproj(choice.variant, &mmproj, model_source)
+                .map_err(|e| err::or_kind(e, AppError::Download))?;
         }
-        let mut translator = Translator::load_vision(&model, &mmproj, args.gpu_layers)?;
+        let mut translator = Translator::load_vision(&choice.path, &mmproj, args.gpu_layers)
+            .map_err(|e| err::or_kind(e, AppError::Model))?;
         let region = match (args.x, args.y, args.w, args.h) {
             (Some(x), Some(y), Some(w), Some(h)) => Some((x, y, w, h)),
             _ => None,
@@ -282,7 +334,7 @@ fn run() -> Result<()> {
     }
 
     if args.x.is_some() || args.y.is_some() || args.w.is_some() || args.h.is_some() {
-        bail!("-x/-y/-w/-h can only be used together with --image");
+        return Err(err::usage("-x/-y/-w/-h can only be used together with --image"));
     }
 
     let text = if !args.text.is_empty() {
@@ -300,8 +352,9 @@ fn run() -> Result<()> {
         no_input();
     }
 
-    ensure_model(&model, model_explicit, variant, model_source)?;
-    let translator = Translator::load(&model, args.gpu_layers)?;
+    ensure_model(&choice, model_source)?;
+    let translator = Translator::load(&choice.path, args.gpu_layers)
+        .map_err(|e| err::or_kind(e, AppError::Model))?;
     let target = args
         .to
         .unwrap_or_else(|| default_target(source.unwrap_or_else(|| Lang::detect(text))));
@@ -315,7 +368,7 @@ fn main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("error: {e:#}");
-            ExitCode::FAILURE
+            ExitCode::from(err::exit_code(&e))
         }
     }
 }
