@@ -77,39 +77,41 @@ jobs:
           set -euo pipefail
           sudo gem install fpm --no-document
           VER="${GITHUB_REF_NAME#v}"
+          # rpm/pacman package versions may not contain '-'
+          PKG_VER="${VER//-/.}"
           MODEL_DIR="$HOME/.local/share/qwen-translate"
           rm -rf pkgroot
           mkdir -p pkgroot/usr/bin pkgroot/usr/share/qwen-translate
           cp target/release/translate pkgroot/usr/bin/
           cp -r firefox scripts README.md README.zh-CN.md LICENSE pkgroot/usr/share/qwen-translate/
 
-          FPM_COMMON="-s dir -C pkgroot -v $VER --license GPL-3.0-only \
+          FPM_COMMON="-s dir -C pkgroot --license GPL-3.0-only \
             --maintainer TUST-Open-Source-Club \
             --url https://github.com/TUST-Open-Source-Club/translator"
           # without model: auto-download on first run
-          fpm $FPM_COMMON -n qwen-translate -t deb    --depends libvulkan1 \
+          fpm $FPM_COMMON -v "$VER" -n qwen-translate -t deb    --depends libvulkan1 \
             --description 'Local offline translation CLI (Qwen3.5-0.8B + llama.cpp); model auto-downloads on first run' \
             -p "qwen-translate_${VER}_amd64.deb"
-          fpm $FPM_COMMON -n qwen-translate -t rpm    --depends vulkan-loader \
+          fpm $FPM_COMMON -v "$PKG_VER" -n qwen-translate -t rpm    --depends vulkan-loader \
             --description 'Local offline translation CLI (Qwen3.5-0.8B + llama.cpp); model auto-downloads on first run' \
-            -p "qwen-translate-${VER}-1.x86_64.rpm"
-          fpm $FPM_COMMON -n qwen-translate -t pacman --depends vulkan-icd-loader \
+            -p "qwen-translate-${PKG_VER}-1.x86_64.rpm"
+          fpm $FPM_COMMON -v "$PKG_VER" -n qwen-translate -t pacman --depends vulkan-icd-loader \
             --description 'Local offline translation CLI (Qwen3.5-0.8B + llama.cpp); model auto-downloads on first run' \
-            -p "qwen-translate-${VER}-1-x86_64.pkg.tar.zst"
+            -p "qwen-translate-${PKG_VER}-1-x86_64.pkg.tar.zst"
           # with model: installed to /usr/share/qwen-translate/ (global lookup path), works offline
           cp "$MODEL_DIR"/*.gguf pkgroot/usr/share/qwen-translate/
-          fpm $FPM_COMMON -n qwen-translate-full -t deb    --depends libvulkan1 \
+          fpm $FPM_COMMON -v "$VER" -n qwen-translate-full -t deb    --depends libvulkan1 \
             --conflicts qwen-translate \
             --description 'Local offline translation CLI (Qwen3.5-0.8B + llama.cpp), model bundled' \
             -p "qwen-translate-full_${VER}_amd64.deb"
-          fpm $FPM_COMMON -n qwen-translate-full -t rpm    --depends vulkan-loader \
+          fpm $FPM_COMMON -v "$PKG_VER" -n qwen-translate-full -t rpm    --depends vulkan-loader \
             --conflicts qwen-translate \
             --description 'Local offline translation CLI (Qwen3.5-0.8B + llama.cpp), model bundled' \
-            -p "qwen-translate-full-${VER}-1.x86_64.rpm"
-          fpm $FPM_COMMON -n qwen-translate-full -t pacman --depends vulkan-icd-loader \
+            -p "qwen-translate-full-${PKG_VER}-1.x86_64.rpm"
+          fpm $FPM_COMMON -v "$PKG_VER" -n qwen-translate-full -t pacman --depends vulkan-icd-loader \
             --conflicts qwen-translate \
             --description 'Local offline translation CLI (Qwen3.5-0.8B + llama.cpp), model bundled' \
-            -p "qwen-translate-full-${VER}-1-x86_64.pkg.tar.zst"
+            -p "qwen-translate-full-${PKG_VER}-1-x86_64.pkg.tar.zst"
           ls -lh *.deb *.rpm *.pkg.tar.zst
 
       - name: Publish draft GitHub Release (review before publishing)
