@@ -1,19 +1,27 @@
-**简体中文** | [English](README.md)
+[English](README.md) | **简体中文**
 
 # translator
 
-本地离线翻译工具：Rust + llama.cpp 跑 Qwen3.5（Q4_K_M），配套 Firefox 扩展（右键翻译选中内容）。GPLv3 开源。
+本地离线翻译工具：Rust + llama.cpp 跑 Qwen3.5（Q4_K_M 量化）。GPLv3 开源。
 
-模型变体：**默认 2B**，`--fast` 切 0.8B，`--quality` 切 4B；各自缺失时自动下载。
+模型变体：**默认 2B**，`--fast` 切 0.8B，`--quality` 切 4B；各自缺失时自动下载（默认 ModelScope，可切 HuggingFace）。
 
-**非常Unix**：只做一件事——翻译，打印结果。可以和别的工具通过管道组合使用。
+这是一个**非常 Unix** 的项目：只做一件事——把 stdin（或参数）的文本翻译到 stdout——并且为与其他工具管道组合而设计。文本进，译文出，stdout 上没有任何多余输出。
 
-- 首次运行自动下载模型，默认走 **ModelScope**（国内快），可切 HuggingFace
-- 支持 9 种语言：中/英/日/韩/法/德/俄/西/葡；`--from` 默认 auto 自动检测，`--to` 默认中英互译方向；环境变量 `TRANSLATE_FROM`/`TRANSLATE_TO` 可设默认值，命令行参数优先
-- 图片翻译：`--image` 直接多模态翻译（非 OCR），`--x/--y/--w/--h` 可裁剪翻译区域
+```bash
+echo "我喜欢编程" | translate                        # -> I like programming.
+cat README.md | translate | less                    # 管道随便组
+translate --to ja "你好，世界"                       # -> こんにちは、世界です。
+translate --image screenshot.png                    # 图片翻译（多模态直译，非 OCR）
+```
+
+- 首次运行自动下载模型（默认 ModelScope，可选 HuggingFace）
+- 9 种语言：中/英/日/韩/法/德/俄/西/葡；`--from`（默认 auto）与 `--to` 可用 `TRANSLATE_FROM`/`TRANSLATE_TO` 设默认，命令行参数优先
+- `--image` 图片翻译，支持 `-x/-y/-w/-h` 区域裁剪（长参数 `--width`/`--height`）
+- 默认流式输出（`--no-stream` 关闭）
 - 有 GPU 用 GPU（Vulkan / CUDA / Metal），没有自动回退 CPU
-- stdout 只输出结果，日志/进度/报错全走 stderr，可放心管道组合
-- Qwen3.5-0.8B 是多模态模型，文本/图片翻译都靠它；0.8B 小模型偶尔有词汇级误译，属正常局限
+- stdout 只输出结果，日志/报错全走 stderr
+- 可选 Firefox 扩展：右键「翻译选中内容」，由同一个二进制驱动
 
 ## 安装
 
@@ -50,7 +58,7 @@ cargo build --release --features metal
 构建依赖：cmake、clang、C++ 编译器。Linux Vulkan 构建还需要 SPIRV-Headers：
 
 ```bash
-# Debian/Ubuntu: sudo apt install spirv-headers libvulkan-dev glslang-tools
+# Debian/Ubuntu: sudo apt install spirv-headers libvulkan-dev glslang-tools glslc
 # Arch:          sudo pacman -S spirv-headers
 # 或无 sudo 本地安装：
 git clone --depth 1 https://github.com/KhronosGroup/SPIRV-Headers /tmp/spirv-headers
@@ -59,33 +67,32 @@ cmake --build /tmp/spirv-headers/build --target install
 CMAKE_PREFIX_PATH=$HOME/.local CPATH=$HOME/.local/include cargo build --release --features vulkan
 ```
 
-## CLI 使用
+## 使用
 
 ```bash
-translate "I love programming"      # 参数传入 → 译成中文
-echo "我喜欢编程" | translate        # stdin 管道 → 译成英文
-translate < file.txt                # 文件重定向
-cat file.txt | translate | less     # 管道组合
-translate --to en "你好"            # 强制目标语言
-translate --model /path/to.gguf "…" # 指定模型（或环境变量 QWEN_TRANSLATE_MODEL）
-translate --fast "…"                # 快速 0.8B 变体
-translate --quality "…"             # 高质量 4B 变体
-translate --gpu-layers 0 "…"        # 强制纯 CPU
-translate --model-source huggingface "…"  # 自动下载走 HuggingFace（默认 modelscope）
-translate --log-level info "…"           # 显示 llama.cpp 内部日志（默认 warn，静默）
+translate "I love programming"       # 参数传入 → 译成中文
+echo "我喜欢编程" | translate         # stdin 管道 → 译成英文
+translate < file.txt                 # 文件重定向
+cat file.txt | translate | less      # 管道组合
 
-# 多语言（zh/en/ja/ko/fr/de/ru/es/pt）
-translate --to ja "你好"                 # 中 → 日
-translate --from ru --to zh "Привет"     # 指定源语言（默认 auto 自动检测）
-TRANSLATE_TO=ja translate "你好"         # 环境变量设默认目标语言（命令行参数优先）
+translate --to ja "你好"             # 指定目标语言
+translate --from ru --to zh "Привет" # 指定源语言（默认 auto 自动检测）
+TRANSLATE_TO=ja translate "你好"     # 环境变量设默认目标语言（命令行参数优先）
 
-# 图片翻译（多模态直接翻译，非 OCR；首次使用自动下载 mmproj 投影权重）
-translate --image shot.png                     # 整图翻译
-translate --image shot.png -x 10 -y 20 -w 300 -h 200   # 只翻译指定区域（-x/-y 左上角；-w/--width、-h/--height 宽高）
+translate --image shot.png                           # 整图翻译
+translate --image shot.png -x 10 -y 20 -w 300 -h 200 # 只翻译指定区域
+
+translate --fast "…"                 # 快速 0.8B 变体
+translate --quality "…"              # 高质量 4B 变体
+translate --model /path/to.gguf "…"  # 指定模型（或环境变量 QWEN_TRANSLATE_MODEL）
+translate --no-stream "…"            # 关闭流式输出
+translate --gpu-layers 0 "…"         # 强制纯 CPU
+translate --model-source huggingface "…" # 自动下载走 HuggingFace（默认 modelscope）
+translate --log-level info "…"       # 显示 llama.cpp 内部日志（默认 warn，静默）
 ```
 
 参数与 stdin 同时存在时优先用参数；两者都没有时打印帮助。解码为贪心策略（确定性输出）。
-模型默认非思考模式（Qwen3.5-0.8B 本身即如此，不支持 /no_think 软开关）。
+模型运行在非思考模式（Qwen3.5 本身即默认非思考，不支持 /no_think 软开关）。
 
 模型查找顺序（命中即用）：
 
@@ -94,7 +101,7 @@ translate --image shot.png -x 10 -y 20 -w 300 -h 200   # 只翻译指定区域�
 3. 系统目录：`/usr/local/share/qwen-translate/`、`/usr/share/qwen-translate/`（macOS 额外含 Homebrew 前缀 `/opt/homebrew/share/qwen-translate/`）——带模型的安装包就装在这里
 4. 都没有 → 自动下载到用户数据目录（默认 ModelScope）
 
-手动预下载/换量化：`scripts/download-model.sh`（支持 `MODEL_SOURCE` / `MODEL_REPO` / `MODEL_NAME` 环境变量覆盖）。
+手动预下载/换变体：`scripts/download-model.sh`（支持 `VARIANT=default/fast/quality`、`MODEL_SOURCE` 环境变量）。
 
 ## Firefox 扩展
 
@@ -116,7 +123,7 @@ translate --image shot.png -x 10 -y 20 -w 300 -h 200   # 只翻译指定区域�
 
 ## CI/CD
 
-- **CI**（push / PR）：Ubuntu（Vulkan）+ macOS（Metal）构建 + 真实推理冒烟测试
+- **CI**（push / PR）：Ubuntu（Vulkan）+ macOS（Metal）构建 + 真实推理冒烟测试（文本 + 图片）
 - **CD**（推送 `v*` tag 触发）：构建 Release 资产——双平台 tar.xz（含/不含模型）+ deb / rpm / pacman 安装包（各含/不含模型两种），以**草稿**形式创建 Release，人工确认后发布
 
 ## 卸载

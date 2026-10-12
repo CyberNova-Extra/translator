@@ -18,6 +18,7 @@ translate --image screenshot.png                    # image translation (multimo
 - Auto-downloads the model on first run (ModelScope by default, HuggingFace optional)
 - 9 languages: zh / en / ja / ko / fr / de / ru / es / pt; `--from` (default `auto`) and `--to`, overridable via `TRANSLATE_FROM` / `TRANSLATE_TO`
 - Image translation via `--image` with optional region cropping (`-x/-y/-w/-h`, long forms `--width`/`--height`)
+- Streaming output by default (`--no-stream` to disable)
 - GPU when available (Vulkan / CUDA / Metal), silent CPU fallback otherwise
 - stdout carries results only; logs and errors go to stderr
 - Optional Firefox extension: right-click "Translate selection" backed by the same binary
@@ -84,6 +85,7 @@ translate --image shot.png -x 10 -y 20 -w 300 -h 200     # translate a region on
 translate --model /path/to.gguf "…"  # custom model (or QWEN_TRANSLATE_MODEL)
 translate --fast "…"                 # fast 0.8B variant
 translate --quality "…"              # high-quality 4B variant
+translate --no-stream "…"            # disable streaming output
 translate --gpu-layers 0 "…"         # force CPU
 translate --model-source huggingface "…" # download via HuggingFace (default: modelscope)
 translate --log-level info "…"       # llama.cpp internals (default: warn, quiet)

@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::num::NonZeroU32;
 use std::path::Path;
 
@@ -167,20 +168,33 @@ impl Translator {
             .with_n_threads_batch(threads)
     }
 
-    /// Greedy decode loop (deterministic output)
-    fn generate(&self, ctx: &mut LlamaContext, start_pos: i32, max_tokens: usize) -> Result<String> {
+    /// Greedy decode loop (deterministic output); `stream` prints pieces to stdout as generated
+    fn generate(
+        &self,
+        ctx: &mut LlamaContext,
+        start_pos: i32,
+        max_tokens: usize,
+        stream: bool,
+    ) -> Result<String> {
         let vocab = self.model.vocab();
         let mut sampler = LlamaSampler::chain_simple([LlamaSampler::greedy()]);
         let mut batch = LlamaBatch::new(512, 1);
         let mut out_bytes: Vec<u8> = Vec::new();
         let mut pos = start_pos;
+        let stdout = std::io::stdout();
         for _ in 0..max_tokens {
             let token = sampler.sample(ctx, -1);
             sampler.accept(token);
             if vocab.is_eog(token) {
                 break;
             }
-            out_bytes.extend_from_slice(&vocab.token_to_piece(token, false, None));
+            let piece = vocab.token_to_piece(token, false, None);
+            if stream {
+                let mut out = stdout.lock();
+                let _ = out.write_all(&piece);
+                let _ = out.flush();
+            }
+            out_bytes.extend_from_slice(&piece);
             batch.clear();
             batch.add(token, pos, &[0], true)?;
             pos += 1;
@@ -190,7 +204,13 @@ impl Translator {
         Ok(strip_think(&raw).to_string())
     }
 
-    pub fn translate(&self, text: &str, source: Option<Lang>, target: Lang) -> Result<String> {
+    pub fn translate(
+        &self,
+        text: &str,
+        source: Option<Lang>,
+        target: Lang,
+        stream: bool,
+    ) -> Result<String> {
         let from = match source {
             Some(s) => format!("from {} ", s.name()),
             None => String::new(),
@@ -233,7 +253,7 @@ impl Translator {
         }
 
         let max_out = (tokens.len() * 2 + 128).min(2048);
-        self.generate(&mut ctx, tokens.len() as i32, max_out)
+        self.generate(&mut ctx, tokens.len() as i32, max_out, stream)
     }
 
     /// Image translation (direct multimodal translation, NOT OCR). region = (x, y, w, h), None = whole image.
@@ -243,6 +263,7 @@ impl Translator {
         region: Option<(u32, u32, u32, u32)>,
         source: Option<Lang>,
         target: Option<Lang>,
+        stream: bool,
     ) -> Result<String> {
         let img = image::open(image_path)
             .with_context(|| format!("failed to read image: {}", image_path.display()))?;
@@ -279,7 +300,7 @@ impl Translator {
                      <|im_start|>assistant\n<think>\n\n</think>\n\n",
                     mtmd_default_marker()
                 );
-                let answer = self.run_vision_prompt(&bitmap, probe, 8)?;
+                let answer = self.run_vision_prompt(&bitmap, probe, 8, false)?;
                 if answer.to_lowercase().contains("yes") {
                     Lang::En
                 } else {
@@ -297,7 +318,7 @@ impl Translator {
             mtmd_default_marker(),
             target.name()
         );
-        self.run_vision_prompt(&bitmap, prompt, 2048)
+        self.run_vision_prompt(&bitmap, prompt, 2048, stream)
     }
 
     /// Run one vision prompt: tokenize (text + image) -> encode -> greedy decode
@@ -306,6 +327,7 @@ impl Translator {
         bitmap: &MtmdBitmap,
         prompt: String,
         max_tokens: usize,
+        stream: bool,
     ) -> Result<String> {
         let input = MtmdInputText {
             text: prompt,
@@ -336,7 +358,7 @@ impl Translator {
                 .map_err(|e| anyhow::anyhow!("failed to encode image: {e}"))?
         };
 
-        self.generate(&mut ctx, n_past, max_tokens)
+        self.generate(&mut ctx, n_past, max_tokens, stream)
     }
 }
 

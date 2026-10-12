@@ -92,6 +92,10 @@ struct Args {
     #[arg(short = 'h', long = "height", requires = "x", requires = "y", requires = "w")]
     h: Option<u32>,
 
+    /// Disable streaming output
+    #[arg(long)]
+    no_stream: bool,
+
     /// Run as a Firefox native messaging host (used by the browser extension)
     #[arg(long)]
     native_host: bool,
@@ -179,8 +183,10 @@ fn no_input() -> ! {
         .exit()
 }
 
-fn print_result(out: &str) {
-    print!("{out}");
+fn print_result(out: &str, streamed: bool) {
+    if !streamed {
+        print!("{out}");
+    }
     if !out.ends_with('\n') {
         println!();
     }
@@ -223,8 +229,8 @@ fn run() -> Result<()> {
             (Some(x), Some(y), Some(w), Some(h)) => Some((x, y, w, h)),
             _ => None,
         };
-        let out = translator.translate_image(image_path, region, source, args.to)?;
-        print_result(&out);
+        let out = translator.translate_image(image_path, region, source, args.to, !args.no_stream)?;
+        print_result(&out, !args.no_stream);
         return Ok(());
     }
 
@@ -252,8 +258,8 @@ fn run() -> Result<()> {
     let target = args
         .to
         .unwrap_or_else(|| default_target(source.unwrap_or_else(|| Lang::detect(text))));
-    let out = translator.translate(text, source, target)?;
-    print_result(&out);
+    let out = translator.translate(text, source, target, !args.no_stream)?;
+    print_result(&out, !args.no_stream);
     Ok(())
 }
 

@@ -53,7 +53,7 @@ fn handle(translator: &Translator, buf: &[u8]) -> serde_json::Value {
         return json!({ "error": "empty text" });
     }
     let detected = Lang::detect(text);
-    match translator.translate(text, None, default_target(detected)) {
+    match translator.translate(text, None, default_target(detected), false) {
         Ok(t) => json!({ "translation": t }),
         Err(e) => json!({ "error": format!("{e:#}") }),
     }
