@@ -2,7 +2,9 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-Local, offline translation: Rust + llama.cpp running [Qwen3.5-0.8B](https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF) (Q4_K_M, ~500MB). GPLv3.
+Local, offline translation: Rust + llama.cpp running Qwen3.5 (Q4_K_M). GPLv3.
+
+Model variants: **2B by default**, `--fast` switches to 0.8B, `--quality` to 4B. Each auto-downloads on first use (ModelScope by default, HuggingFace optional).
 
 A **very Unix** project: it does one thing — translate text from stdin (or arguments) to stdout — and is designed to be composed with other tools in pipelines. Text in, translation out, nothing else on stdout.
 
@@ -80,6 +82,8 @@ translate --image shot.png                               # translate a whole ima
 translate --image shot.png -x 10 -y 20 -w 300 -h 200     # translate a region only
 
 translate --model /path/to.gguf "…"  # custom model (or QWEN_TRANSLATE_MODEL)
+translate --fast "…"                 # fast 0.8B variant
+translate --quality "…"              # high-quality 4B variant
 translate --gpu-layers 0 "…"         # force CPU
 translate --model-source huggingface "…" # download via HuggingFace (default: modelscope)
 translate --log-level info "…"       # llama.cpp internals (default: warn, quiet)

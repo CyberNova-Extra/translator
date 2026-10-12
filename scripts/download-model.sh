@@ -1,12 +1,34 @@
 #!/usr/bin/env bash
-# Download the Qwen3.5-0.8B GGUF model + mmproj projector weights into the platform data dir.
-# Downloads from ModelScope by default; set MODEL_SOURCE=huggingface for HuggingFace (uses a mirror).
+# Download the GGUF model + mmproj projector weights into the platform data dir.
+# Downloads from ModelScope by default; MODEL_SOURCE=huggingface for HuggingFace.
+# VARIANT=default (2B) | fast (0.8B) | quality (4B); default is "default".
 set -euo pipefail
 
-MODEL_NAME="${MODEL_NAME:-Qwen3.5-0.8B-Q4_K_M.gguf}"
-MMPROJ_NAME="${MMPROJ_NAME:-mmproj-F16.gguf}"
-REPO="${MODEL_REPO:-unsloth/Qwen3.5-0.8B-GGUF}"
+VARIANT="${VARIANT:-default}"
+case "$VARIANT" in
+  default)
+    REPO="unsloth/Qwen3.5-2B-GGUF"
+    MODEL_NAME="Qwen3.5-2B-Q4_K_M.gguf"
+    MMPROJ_LOCAL="Qwen3.5-2B-mmproj-F16.gguf"
+    ;;
+  fast)
+    REPO="unsloth/Qwen3.5-0.8B-GGUF"
+    MODEL_NAME="Qwen3.5-0.8B-Q4_K_M.gguf"
+    MMPROJ_LOCAL="mmproj-F16.gguf"
+    ;;
+  quality)
+    REPO="unsloth/Qwen3.5-4B-GGUF"
+    MODEL_NAME="Qwen3.5-4B-Q4_K_M.gguf"
+    MMPROJ_LOCAL="Qwen3.5-4B-mmproj-F16.gguf"
+    ;;
+  *)
+    echo "VARIANT must be default, fast or quality" >&2
+    exit 1
+    ;;
+esac
+REPO="${MODEL_REPO:-$REPO}"
 SOURCE="${MODEL_SOURCE:-modelscope}"
+MMPROJ_REMOTE="mmproj-F16.gguf"
 
 if [[ "$(uname)" == "Darwin" ]]; then
   DEST_DIR="$HOME/Library/Application Support/qwen-translate"
@@ -16,8 +38,8 @@ fi
 mkdir -p "$DEST_DIR"
 
 download_one() {
-  local name="$1"
-  local dest="$DEST_DIR/$name"
+  local remote="$1" local_name="$2"
+  local dest="$DEST_DIR/$local_name"
   if [[ -f "$dest" ]]; then
     echo "Already exists: $dest" >&2
     return 0
@@ -26,12 +48,12 @@ download_one() {
   local urls=()
   case "$SOURCE" in
     modelscope)
-      urls=("https://modelscope.cn/models/$REPO/resolve/master/$name")
+      urls=("https://modelscope.cn/models/$REPO/resolve/master/$remote")
       ;;
     huggingface|hf)
       urls=(
-        "https://hf-mirror.com/$REPO/resolve/main/$name"
-        "https://huggingface.co/$REPO/resolve/main/$name"
+        "https://hf-mirror.com/$REPO/resolve/main/$remote"
+        "https://huggingface.co/$REPO/resolve/main/$remote"
       )
       ;;
     *)
@@ -51,9 +73,9 @@ download_one() {
   done
 
   rm -f "$dest.tmp"
-  echo "Download failed: $name" >&2
+  echo "Download failed: $remote" >&2
   return 1
 }
 
-download_one "$MODEL_NAME"
-download_one "$MMPROJ_NAME"
+download_one "$MODEL_NAME" "$MODEL_NAME"
+download_one "$MMPROJ_REMOTE" "$MMPROJ_LOCAL"

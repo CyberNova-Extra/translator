@@ -9,7 +9,7 @@ use std::process::ExitCode;
 
 use anyhow::{bail, Result};
 use clap::{CommandFactory, Parser};
-use download::ModelSource;
+use download::{ModelSource, ModelVariant, VARIANT_DEFAULT, VARIANT_FAST, VARIANT_QUALITY};
 use infer::{default_target, Lang, SourceLang, Translator};
 
 const ENV_MODEL: &str = "QWEN_TRANSLATE_MODEL";
@@ -19,10 +19,11 @@ const ENV_MODEL: &str = "QWEN_TRANSLATE_MODEL";
     name = "translate",
     version,
     disable_help_flag = true,
-    about = "Local offline translation with Qwen3.5-0.8B (text and images)",
-    long_about = "Local offline translation with Qwen3.5-0.8B (text and images).\n\n\
+    about = "Local offline translation with Qwen3.5 (text and images)",
+    long_about = "Local offline translation with Qwen3.5 (text and images).\n\n\
         Input: command-line arguments take precedence, otherwise stdin is read (pipe-friendly).\n\
         Image translation: pass an image via --image; -x/-y/-w/-h crop the region to translate.\n\
+        Models: the default variant favors quality; --fast switches to the 0.8B variant.\n\
         Model lookup order: --model / env var > user data dir > /usr/local/share, /usr/share\n\
         (on macOS also the Homebrew prefix /opt/homebrew/share); auto-downloads to the user\n\
         data dir when not found anywhere.\n\
@@ -31,12 +32,25 @@ const ENV_MODEL: &str = "QWEN_TRANSLATE_MODEL";
         translate \"I love programming\"\n  \
         echo 我喜欢编程 | translate\n  \
         translate --to ja \"你好\"\n  \
+        translate --fast \"quick answer\"\n  \
         translate --image shot.png -x 10 -y 20 -w 300 -h 200"
 )]
 struct Args {
     /// Path to the GGUF model
     #[arg(long, env = ENV_MODEL)]
     model: Option<PathBuf>,
+
+    /// Path to the mmproj projector weights (image translation)
+    #[arg(long)]
+    mmproj: Option<PathBuf>,
+
+    /// Use the fast 0.8B model instead of the default 2B one
+    #[arg(long, conflicts_with = "quality")]
+    fast: bool,
+
+    /// Use the high-quality 4B model instead of the default 2B one
+    #[arg(long)]
+    quality: bool,
 
     /// Source used when auto-downloading the model
     #[arg(long, value_enum, default_value = "modelscope")]
@@ -130,15 +144,20 @@ fn resolve_named_file(file: &str) -> PathBuf {
     user
 }
 
-fn resolve_model(explicit: Option<PathBuf>) -> (PathBuf, bool) {
+fn resolve_model(explicit: Option<PathBuf>, variant: &ModelVariant) -> (PathBuf, bool) {
     match explicit {
         Some(p) => (p, true),
-        None => (resolve_named_file(download::DEFAULT_FILE), false),
+        None => (resolve_named_file(variant.model_file), false),
     }
 }
 
 /// Auto-download when the default model is missing; error out for explicit paths
-fn ensure_model(model: &Path, explicit: bool, source: ModelSource) -> Result<()> {
+fn ensure_model(
+    model: &Path,
+    explicit: bool,
+    variant: &ModelVariant,
+    source: ModelSource,
+) -> Result<()> {
     if model.is_file() {
         return Ok(());
     }
@@ -148,7 +167,7 @@ fn ensure_model(model: &Path, explicit: bool, source: ModelSource) -> Result<()>
             model.display()
         );
     }
-    download::download_model(model, source)
+    download::download_model(variant, model, source)
 }
 
 fn no_input() -> ! {
@@ -171,11 +190,18 @@ fn run() -> Result<()> {
     let args = Args::parse();
     logging::init(args.log_level);
 
-    let (model, model_explicit) = resolve_model(args.model.clone());
+    let variant = if args.fast {
+        &VARIANT_FAST
+    } else if args.quality {
+        &VARIANT_QUALITY
+    } else {
+        &VARIANT_DEFAULT
+    };
+    let (model, model_explicit) = resolve_model(args.model.clone(), variant);
     let source = args.from.resolve();
 
     if args.native_host {
-        ensure_model(&model, model_explicit, args.model_source)?;
+        ensure_model(&model, model_explicit, variant, args.model_source)?;
         let translator = Translator::load(&model, args.gpu_layers)?;
         return native_host::run(&translator);
     }
@@ -184,10 +210,13 @@ fn run() -> Result<()> {
         if !args.text.is_empty() {
             bail!("image mode does not accept text input (the text comes from the image itself)");
         }
-        ensure_model(&model, model_explicit, args.model_source)?;
-        let mmproj = resolve_named_file(download::MMPROJ_FILE);
+        ensure_model(&model, model_explicit, variant, args.model_source)?;
+        let mmproj = match &args.mmproj {
+            Some(p) => p.clone(),
+            None => resolve_named_file(variant.mmproj_file),
+        };
         if !mmproj.is_file() {
-            download::download_mmproj(&mmproj, args.model_source)?;
+            download::download_mmproj(variant, &mmproj, args.model_source)?;
         }
         let mut translator = Translator::load_vision(&model, &mmproj, args.gpu_layers)?;
         let region = match (args.x, args.y, args.w, args.h) {
@@ -218,7 +247,7 @@ fn run() -> Result<()> {
         no_input();
     }
 
-    ensure_model(&model, model_explicit, args.model_source)?;
+    ensure_model(&model, model_explicit, variant, args.model_source)?;
     let translator = Translator::load(&model, args.gpu_layers)?;
     let target = args
         .to

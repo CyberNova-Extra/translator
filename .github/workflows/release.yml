@@ -60,7 +60,7 @@ jobs:
           else
             MODEL_DIR="$HOME/.local/share/qwen-translate"
           fi
-          cp "$MODEL_DIR"/*.gguf "$PKG/model/"
+          cp "$MODEL_DIR/Qwen3.5-2B-Q4_K_M.gguf" "$MODEL_DIR/Qwen3.5-2B-mmproj-F16.gguf" "$PKG/model/"
           tar -cJf "$PKG-with-model.tar.xz" "$PKG"
 
           if [ "$(uname)" = Darwin ]; then
@@ -99,7 +99,7 @@ jobs:
             --description 'Local offline translation CLI (Qwen3.5-0.8B + llama.cpp); model auto-downloads on first run' \
             -p "qwen-translate-${PKG_VER}-1-x86_64.pkg.tar.zst"
           # with model: installed to /usr/share/qwen-translate/ (global lookup path), works offline
-          cp "$MODEL_DIR"/*.gguf pkgroot/usr/share/qwen-translate/
+          cp "$MODEL_DIR/Qwen3.5-2B-Q4_K_M.gguf" "$MODEL_DIR/Qwen3.5-2B-mmproj-F16.gguf" pkgroot/usr/share/qwen-translate/
           fpm $FPM_COMMON -v "$VER" -n qwen-translate-full -t deb    --depends libvulkan1 \
             --conflicts qwen-translate \
             --description 'Local offline translation CLI (Qwen3.5-0.8B + llama.cpp), model bundled' \

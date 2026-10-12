@@ -3,10 +3,38 @@ use std::process::Command;
 
 use anyhow::{bail, Context, Result};
 
-pub const DEFAULT_REPO: &str = "unsloth/Qwen3.5-0.8B-GGUF";
-pub const DEFAULT_FILE: &str = "Qwen3.5-0.8B-Q4_K_M.gguf";
-/// Multimodal projector weights (for image translation)
-pub const MMPROJ_FILE: &str = "mmproj-F16.gguf";
+/// A model variant: text model + its matching mmproj projector weights
+pub struct ModelVariant {
+    pub repo: &'static str,
+    pub model_file: &'static str,
+    /// Local file name for the mmproj (renamed per variant to avoid collisions)
+    pub mmproj_file: &'static str,
+}
+
+/// Default variant (quality first)
+pub const VARIANT_DEFAULT: ModelVariant = ModelVariant {
+    repo: "unsloth/Qwen3.5-2B-GGUF",
+    model_file: "Qwen3.5-2B-Q4_K_M.gguf",
+    mmproj_file: "Qwen3.5-2B-mmproj-F16.gguf",
+};
+
+/// Fast variant (--fast)
+pub const VARIANT_FAST: ModelVariant = ModelVariant {
+    repo: "unsloth/Qwen3.5-0.8B-GGUF",
+    model_file: "Qwen3.5-0.8B-Q4_K_M.gguf",
+    // keep the original local name for backward compatibility with existing installs
+    mmproj_file: "mmproj-F16.gguf",
+};
+
+/// Quality variant (--quality)
+pub const VARIANT_QUALITY: ModelVariant = ModelVariant {
+    repo: "unsloth/Qwen3.5-4B-GGUF",
+    model_file: "Qwen3.5-4B-Q4_K_M.gguf",
+    mmproj_file: "Qwen3.5-4B-mmproj-F16.gguf",
+};
+
+/// Remote file name of the mmproj inside each unsloth repo
+const MMPROJ_REMOTE_FILE: &str = "mmproj-F16.gguf";
 
 #[derive(Clone, Copy, Default, clap::ValueEnum)]
 #[value(rename_all = "lowercase")]
@@ -34,22 +62,22 @@ impl ModelSource {
 }
 
 /// Download the model via the system curl (its progress bar goes to stderr, keeping stdout clean).
-pub fn download_model(dest: &Path, source: ModelSource) -> Result<()> {
-    download_file(dest, source, DEFAULT_FILE)
+pub fn download_model(v: &ModelVariant, dest: &Path, source: ModelSource) -> Result<()> {
+    download_file(dest, source, v.repo, v.model_file)
 }
 
-/// Download the mmproj projector weights (for image translation)
-pub fn download_mmproj(dest: &Path, source: ModelSource) -> Result<()> {
-    download_file(dest, source, MMPROJ_FILE)
+/// Download the variant's mmproj projector weights (for image translation)
+pub fn download_mmproj(v: &ModelVariant, dest: &Path, source: ModelSource) -> Result<()> {
+    download_file(dest, source, v.repo, MMPROJ_REMOTE_FILE)
 }
 
-fn download_file(dest: &Path, source: ModelSource, file: &str) -> Result<()> {
+fn download_file(dest: &Path, source: ModelSource, repo: &str, file: &str) -> Result<()> {
     let dir = dest.parent().expect("model path has no parent directory");
     std::fs::create_dir_all(dir)?;
     let tmp = dest.with_extension("gguf.tmp");
 
     let mut tried = Vec::new();
-    for url in source.urls(DEFAULT_REPO, file) {
+    for url in source.urls(repo, file) {
         eprintln!("Downloading: {url}");
         let status = Command::new("curl")
             .args(["-fL", "--connect-timeout", "15", "-o"])

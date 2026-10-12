@@ -36,7 +36,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ matrix.model_dir }}
-          key: model-qwen35-0.8b-q4_k_m-v2
+          key: model-qwen35-2b-q4_k_m-v3
 
       - name: Smoke test (stdin pipe)
         run: |

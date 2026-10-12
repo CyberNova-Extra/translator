@@ -2,7 +2,9 @@
 
 # translator
 
-本地离线翻译工具：Rust + llama.cpp 跑 [Qwen3.5-0.8B](https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF)（Q4_K_M，约 500MB），配套 Firefox 扩展（右键翻译选中内容）。GPLv3 开源。
+本地离线翻译工具：Rust + llama.cpp 跑 Qwen3.5（Q4_K_M），配套 Firefox 扩展（右键翻译选中内容）。GPLv3 开源。
+
+模型变体：**默认 2B**，`--fast` 切 0.8B，`--quality` 切 4B；各自缺失时自动下载。
 
 **非常Unix**：只做一件事——翻译，打印结果。可以和别的工具通过管道组合使用。
 
@@ -66,6 +68,8 @@ translate < file.txt                # 文件重定向
 cat file.txt | translate | less     # 管道组合
 translate --to en "你好"            # 强制目标语言
 translate --model /path/to.gguf "…" # 指定模型（或环境变量 QWEN_TRANSLATE_MODEL）
+translate --fast "…"                # 快速 0.8B 变体
+translate --quality "…"             # 高质量 4B 变体
 translate --gpu-layers 0 "…"        # 强制纯 CPU
 translate --model-source huggingface "…"  # 自动下载走 HuggingFace（默认 modelscope）
 translate --log-level info "…"           # 显示 llama.cpp 内部日志（默认 warn，静默）
